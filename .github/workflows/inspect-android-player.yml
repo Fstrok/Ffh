@@ -1,0 +1,70 @@
+name: Inspect Unity Android Player 6000.2.6f2
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/inspect-android-player.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install extraction tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full file tree
+
+      - name: Download official Android Build Support
+        run: |
+          mkdir -p work
+          curl -fL --retry 3             "https://download.unity3d.com/download_unity/4a4dcaec6541/TargetSupportInstaller/UnitySetup-Android-Support-for-Editor-6000.2.6f2.exe"             -o work/android-support.exe
+          ls -lh work/android-support.exe
+          file work/android-support.exe
+          7z l work/android-support.exe > work/installer-list.txt
+          head -100 work/installer-list.txt
+
+      - name: Extract module
+        run: |
+          mkdir -p work/android-support
+          7z x -y work/android-support.exe -owork/android-support > work/extract.log
+          du -sh work/android-support
+          find work/android-support -type f > work/all-files.txt
+          grep -Ei             'AndroidPlayer|Variations|mono|il2cpp|armv7|arm64|libunity|libmain|gradle|launcher|unityLibrary|classes.jar|UnityPlayer'             work/all-files.txt > work/interesting-files.txt || true
+          wc -l work/all-files.txt work/interesting-files.txt
+          sed -n '1,1000p' work/interesting-files.txt
+
+      - name: Make compact player inventory
+        run: |
+          mkdir -p work/report
+          cp work/installer-list.txt work/report/
+          cp work/interesting-files.txt work/report/
+          cp work/extract.log work/report/
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, os, hashlib
+          root=Path("work/android-support")
+          out=[]
+          keys=("libunity","libmain","mono","il2cpp","gradle","classes.jar","unityplayer","androidplayer","launcher")
+          for p in root.rglob("*"):
+              if not p.is_file(): continue
+              low=str(p).lower()
+              if any(k in low for k in keys):
+                  st=p.stat()
+                  out.append({"path":str(p.relative_to(root)),"size":st.st_size})
+          Path("work/report/player-files.json").write_text(json.dumps(out,indent=2),encoding="utf-8")
+          PY
+          tar -C work -czf work/unity-android-player-inventory.tgz report
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unity-android-player-inventory
+          path: work/unity-android-player-inventory.tgz
+          retention-days: 7
