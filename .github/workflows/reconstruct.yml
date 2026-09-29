@@ -118,7 +118,7 @@ jobs:
           GAME_EXE="$(sed -n 's/^GAME_EXE=//p' work/game-paths.txt)"
           GAME_ROOT="$(dirname "$GAME_EXE")"
           echo "Loading: $GAME_ROOT"
-          curl --fail --show-error --max-time 10800 -L             -X POST             --data-urlencode "Path=$GAME_ROOT"             http://127.0.0.1:8080/LoadFolder             -o work/load-response.html
+          curl --fail --show-error --max-time 10800 -L --data-urlencode "Path=$GAME_ROOT"             http://127.0.0.1:8080/LoadFolder             -o work/load-response.html
           grep -Ei "error|exception|failed" work/assetripper.log | tail -100 || true
 
       - name: Export Unity project
@@ -127,7 +127,7 @@ jobs:
           rm -rf work/exported
           mkdir -p work/exported
           EXPORT_PATH="$GITHUB_WORKSPACE/work/exported"
-          curl --fail --show-error --max-time 10800 -L             -X POST             --data-urlencode "Path=$EXPORT_PATH"             --data-urlencode "CreateSubfolder=false"             http://127.0.0.1:8080/Export/UnityProject             -o work/export-response.html
+          curl --fail --show-error --max-time 10800 -L --data-urlencode "Path=$EXPORT_PATH"             --data-urlencode "CreateSubfolder=false"             http://127.0.0.1:8080/Export/UnityProject             -o work/export-response.html
           test -d work/exported/Assets
           test -d work/exported/ProjectSettings
           kill "$(cat work/ar.pid)" || true
