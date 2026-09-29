@@ -1,0 +1,46 @@
+name: Verify FFH PixelDrain Mirror
+on:
+  push:
+    branches: [ main ]
+    paths: [".github/workflows/verify-pixeldrain.yml"]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install 7zip
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full
+      - name: Download mirror
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 5 --retry-all-errors --retry-delay 5             https://pixeldrain.com/api/file/EXowkxqN             -o ffh.rar
+          test "$(stat -c %s ffh.rar)" = "5056094797"
+          echo "dd1e5330debb742a305d5412cfff81526c6b0ab8c31b52dfae628a3e06cda6c7  ffh.rar" | sha256sum -c -
+      - name: Extract and compare managed assembly
+        run: |
+          set -euxo pipefail
+          mkdir -p probe
+          7z l ffh.rar | tee archive-list.txt
+          7z e -y ffh.rar -oprobe '*Assembly-CSharp.dll'
+          find probe -type f -printf '%p %s\n'
+          GOT="$(sha256sum probe/Assembly-CSharp.dll | cut -d' ' -f1)"
+          echo "mirror Assembly-CSharp SHA256=$GOT"
+          echo "user   Assembly-CSharp SHA256=d5c36732476cd51ad19259e842f2551f6cbc0165cdb839d23d03eb2d67e4beb6"
+          if [ "$GOT" = "d5c36732476cd51ad19259e842f2551f6cbc0165cdb839d23d03eb2d67e4beb6" ]; then
+            echo "EXACT_MATCH=YES" | tee result.txt
+          else
+            echo "EXACT_MATCH=NO" | tee result.txt
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ffh-pixeldrain-verification
+          path: |
+            result.txt
+            archive-list.txt
+          if-no-files-found: warn
+          retention-days: 2
