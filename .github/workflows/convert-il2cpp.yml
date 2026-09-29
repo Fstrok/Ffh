@@ -148,6 +148,13 @@ jobs:
           wc -l work/il2cpp/assembly-list.txt
           sed -n '1,220p' work/il2cpp/assembly-list.txt
 
+      - name: Apply FFH mobile touch patch
+        run: |
+          set -euxo pipefail
+          test -f work/il2cpp/assemblies/Assembly-CSharp.dll
+          python3 scripts/patch_touch_dll.py work/il2cpp/assemblies/Assembly-CSharp.dll
+          sha256sum work/il2cpp/assemblies/Assembly-CSharp.dll | tee work/il2cpp/touch-patched.sha256
+
       - name: Convert assemblies to C++ with Unity IL2CPP
         run: |
           set -euxo pipefail
@@ -189,7 +196,7 @@ jobs:
         if: success()
         run: |
           set -euxo pipefail
-          tar -C work/il2cpp -cJf work/FFH-il2cpp-output.tar.xz cpp data assemblies assembly-list.txt assembly-sources.json result.txt
+          tar -C work/il2cpp -cJf work/FFH-il2cpp-output.tar.xz cpp data assemblies assembly-list.txt assembly-sources.json result.txt touch-patched.sha256
           ls -lh work/FFH-il2cpp-output.tar.xz
 
       - uses: actions/upload-artifact@v4
