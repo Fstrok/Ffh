@@ -49,62 +49,27 @@ jobs:
           test -d "$EDITOR/Editor/Data/PlaybackEngines/AndroidPlayer/Variations/il2cpp/Managed"
           echo "EDITOR=$EDITOR" >> "$GITHUB_ENV"
 
-      - name: Restore cached FFH v1.177 inner archive
-        id: ffh-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: work/game-cache/FEMBOY_FUTA_HOUSE-v1.177.zip
-          key: ffh-v1.177-inner-3659065573-v1
-
-      - name: Download FFH archive once
-        if: steps.ffh-cache.outputs.cache-hit != 'true'
-        env:
-          GAME_URL: https://drive.google.com/file/d/1ov6ggWc__WXLzMxePESUStjRg5MmhtbX/view?usp=drivesdk
-        run: |
-          set -euxo pipefail
-          mkdir -p work/outer work/game-cache
-          ok=0
-          for wait_s in 0 30 90; do
-            [ "$wait_s" -gt 0 ] && sleep "$wait_s"
-            rm -f work/outer.zip
-            if gdown "$GAME_URL" -O work/outer.zip && [ "$(stat -c %s work/outer.zip)" = "4882324669" ]; then
-              ok=1
-              break
-            fi
-          done
-          if [ "$ok" != 1 ]; then
-            echo "gdown failed; trying direct Google Drive download"
-            rm -f work/outer.zip
-            curl -fL --retry 5 --retry-all-errors --retry-delay 15               "https://drive.usercontent.google.com/download?id=1ov6ggWc__WXLzMxePESUStjRg5MmhtbX&export=download&confirm=t"               -o work/outer.zip
-            test "$(stat -c %s work/outer.zip)" = "4882324669"
-          fi
-          7z x -y work/outer.zip -owork/outer 'Femboy_Futa_House/FEMBOY FUTA HOUSE-v1.177.zip'
-          INNER="$(find work/outer -type f -iname 'FEMBOY FUTA HOUSE-v1.177.zip' -print -quit)"
-          test -n "$INNER"
-          test "$(stat -c %s "$INNER")" = "3659065573"
-          mv "$INNER" work/game-cache/FEMBOY_FUTA_HOUSE-v1.177.zip
-          rm -rf work/outer work/outer.zip
-
-      - name: Save FFH archive cache now
-        if: steps.ffh-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: work/game-cache/FEMBOY_FUTA_HOUSE-v1.177.zip
-          key: ffh-v1.177-inner-3659065573-v1
-
-      - name: Extract FFH v1.177
-        env:
-          INNER_PASSWORD: Downloaded from Porno-Island
+      - name: Download verified FFH v1.177 mirror
         run: |
           set -euxo pipefail
           mkdir -p work/game
-          INNER=work/game-cache/FEMBOY_FUTA_HOUSE-v1.177.zip
-          test "$(stat -c %s "$INNER")" = "3659065573"
-          7z x -y -p"$INNER_PASSWORD" "$INNER" -owork/game
+          curl -fL --retry 5 --retry-all-errors --retry-delay 5 \
+            https://pixeldrain.com/api/file/EXowkxqN \
+            -o work/ffh.rar
+          test "$(stat -c %s work/ffh.rar)" = "5056094797"
+          echo "dd1e5330debb742a305d5412cfff81526c6b0ab8c31b52dfae628a3e06cda6c7  work/ffh.rar" | sha256sum -c -
+
+      - name: Extract verified FFH v1.177 mirror
+        run: |
+          set -euxo pipefail
+          7z x -y work/ffh.rar -owork/game
           DATA="$(find work/game -type d -name 'Femboy Futa House_Data' -print -quit)"
           test -d "$DATA/Managed"
           test -f "$DATA/ScriptingAssemblies.json"
+          GOT="$(sha256sum "$DATA/Managed/Assembly-CSharp.dll" | cut -d' ' -f1)"
+          test "$GOT" = "d5c36732476cd51ad19259e842f2551f6cbc0165cdb839d23d03eb2d67e4beb6"
           echo "DATA=$DATA" >> "$GITHUB_ENV"
+          rm -f work/ffh.rar
           du -sh work/game
 
       - name: Stage Android IL2CPP assembly set
