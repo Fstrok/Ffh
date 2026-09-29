@@ -1,0 +1,63 @@
+name: Extract FFH Core Player Data
+
+on:
+  push:
+    branches: [ main ]
+    paths: [".github/workflows/extract-core-data.yml"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install 7zip
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full
+
+      - name: Download mirror
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 5 --retry-all-errors --retry-delay 3 \
+            https://pixeldrain.com/api/file/EXowkxqN -o ffh.rar
+          test "$(stat -c %s ffh.rar)" = "5056094797"
+          echo "dd1e5330debb742a305d5412cfff81526c6b0ab8c31b52dfae628a3e06cda6c7  ffh.rar" | sha256sum -c -
+
+      - name: Extract core player data only
+        run: |
+          set -euxo pipefail
+          mkdir -p core
+          BASE='FEMBOY FUTA HOUSE/Femboy Futa House_Data'
+          for F in \
+            globalgamemanagers \
+            globalgamemanagers.assets \
+            globalgamemanagers.assets.resS \
+            resources.assets \
+            resources.assets.resS \
+            sharedassets0.assets \
+            sharedassets0.assets.resS \
+            level0 \
+            boot.config \
+            app.info \
+            RuntimeInitializeOnLoads.json \
+            ScriptingAssemblies.json \
+            Resources/unity_builtin_extra \
+            StreamingAssets/aa/catalog.bin \
+            StreamingAssets/aa/catalog.hash \
+            StreamingAssets/aa/settings.json
+          do
+            7z x -y ffh.rar -ocore "$BASE/$F" || true
+          done
+          find core -type f -printf '%P %s\n' | sort | tee core/files.txt
+          find core -type f -exec sha256sum {} + | sort -k2 > core/sha256.txt
+          rm -f ffh.rar
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffh-core-player-data
+          path: core
+          compression-level: 6
+          retention-days: 7
