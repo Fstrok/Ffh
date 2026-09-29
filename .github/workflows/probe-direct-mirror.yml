@@ -1,0 +1,33 @@
+name: Probe FFH Direct Mirror
+on:
+  push:
+    branches: [ main ]
+    paths: [".github/workflows/probe-direct-mirror.yml"]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe PixelDrain and GoFile
+        run: |
+          set -euxo pipefail
+          echo "=== PIXELDRAIN INFO ==="
+          curl -fsSL --retry 3 https://pixeldrain.com/api/file/EXowkxqN/info | tee pixeldrain-info.json
+          echo
+          echo "=== PIXELDRAIN DOWNLOAD HEADERS ==="
+          curl -sSI -L --max-redirs 5 https://pixeldrain.com/api/file/EXowkxqN | tee pixeldrain-headers.txt
+          echo
+          echo "=== GOFILE PAGE HEADERS ==="
+          curl -sSI -L --max-redirs 5 https://gofile.io/d/afei7z | tee gofile-headers.txt || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffh-direct-mirror-probe
+          path: |
+            pixeldrain-info.json
+            pixeldrain-headers.txt
+            gofile-headers.txt
+          retention-days: 1
