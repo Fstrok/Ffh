@@ -1,0 +1,75 @@
+name: Test Unity 6 Android APK Build
+on:
+  push:
+    branches: [ main ]
+    paths: [".github/workflows/test-unity-android-build.yml"]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore Unity cache
+        id: unity-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/UnityEditors/6000.2.6f2
+          key: unity-6000.2.6f2-android-v1
+      - name: Install Unity if needed
+        if: steps.unity-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL https://unity.com/install.sh | bash
+          export PATH="$HOME/.local/bin:$PATH"
+          mkdir -p "$HOME/UnityEditors"
+          unity install-path --set "$HOME/UnityEditors"
+          unity install 6000.2.6f2 -m android --no-child-modules --yes --accept-eula
+      - name: Make tiny Android project
+        run: |
+          set -euxo pipefail
+          mkdir -p p/Assets/Editor p/ProjectSettings
+          printf 'm_EditorVersion: 6000.2.6f2\n' > p/ProjectSettings/ProjectVersion.txt
+          cat > p/Assets/Editor/BuildTest.cs <<'CS'
+          using UnityEditor;
+          using UnityEditor.SceneManagement;
+          using UnityEngine;
+          using System.IO;
+          public static class BuildTest {
+            public static void Run() {
+              Directory.CreateDirectory("Assets/Scenes");
+              var s=EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects,NewSceneMode.Single);
+              var go=new GameObject("FFH_APK_BUILD_TEST");
+              EditorSceneManager.SaveScene(s,"Assets/Scenes/Test.unity");
+              EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Android,BuildTarget.Android);
+              PlayerSettings.applicationIdentifier="fun.tophouse.ffh.buildtest";
+              PlayerSettings.productName="FFH Build Test";
+              PlayerSettings.Android.targetArchitectures=AndroidArchitecture.ARM64;
+              PlayerSettings.SetScriptingBackend(NamedBuildTarget.Android,ScriptingImplementation.IL2CPP);
+              Directory.CreateDirectory("Build");
+              var r=BuildPipeline.BuildPlayer(new[]{"Assets/Scenes/Test.unity"},"Build/test.apk",BuildTarget.Android,BuildOptions.None);
+              Debug.Log("RESULT="+r.summary.result+" SIZE="+new FileInfo("Build/test.apk").Length);
+              if(r.summary.result!=UnityEditor.Build.Reporting.BuildResult.Succeeded) throw new System.Exception(r.summary.result.ToString());
+            }
+          }
+          CS
+      - name: Build Android APK
+        run: |
+          set +e
+          U="$HOME/UnityEditors/6000.2.6f2/Editor/Unity"
+          "$U" -batchmode -nographics -projectPath "$PWD/p" -executeMethod BuildTest.Run -quit -logFile "$PWD/unity-build.log"
+          RC=$?
+          echo "RC=$RC"
+          tail -400 unity-build.log
+          ls -lh p/Build/test.apk 2>/dev/null || true
+          exit "$RC"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unity-android-build-test
+          path: |
+            p/Build/test.apk
+            unity-build.log
+          if-no-files-found: warn
+          retention-days: 2
