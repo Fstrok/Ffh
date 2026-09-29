@@ -33,6 +33,7 @@ jobs:
           printf 'm_EditorVersion: 6000.2.6f2\n' > p/ProjectSettings/ProjectVersion.txt
           cat > p/Assets/Editor/BuildTest.cs <<'CS'
           using UnityEditor;
+          using UnityEditor.Build;
           using UnityEditor.SceneManagement;
           using UnityEngine;
           using System.IO;
