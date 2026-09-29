@@ -1,0 +1,25 @@
+name: Resolve FFH Mirror Redirects
+on:
+  push:
+    branches: [ main ]
+    paths: [".github/workflows/resolve-mirrors.yml"]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve go links
+        run: |
+          set -u
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
+          for ID in 102216 102217 102218 102219 102220; do
+            echo "=== $ID ==="
+            URL="https://skidrowgamereloaded.co/go/$ID"
+            curl -sS -A "$UA" -o /dev/null -D - "$URL" | sed -n '/^HTTP\|^[Ll]ocation:/p'
+            echo "effective:"
+            curl -sS -L --max-redirs 10 -A "$UA" -o /dev/null -w '%{url_effective} %{http_code}\n' "$URL" || true
+          done
