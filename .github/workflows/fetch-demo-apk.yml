@@ -1,0 +1,36 @@
+name: Fetch Official FFH Android Demo APK
+
+on:
+  push:
+    branches: [ main ]
+    paths: [".github/workflows/fetch-demo-apk.yml"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download official TopHouse APK
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 6 --retry-all-errors --retry-delay 3 \
+            -A "Mozilla/5.0" \
+            https://builds.tophouse.fun/ff-house/FF_HOUSE_DEMO_V2_ANDROID.apk \
+            -o FF_HOUSE_DEMO_V2_ANDROID.apk
+          test -s FF_HOUSE_DEMO_V2_ANDROID.apk
+          ls -lh FF_HOUSE_DEMO_V2_ANDROID.apk
+          sha256sum FF_HOUSE_DEMO_V2_ANDROID.apk | tee apk.sha256
+          file FF_HOUSE_DEMO_V2_ANDROID.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: official-ffh-demo-apk
+          path: |
+            FF_HOUSE_DEMO_V2_ANDROID.apk
+            apk.sha256
+          compression-level: 0
+          retention-days: 7
