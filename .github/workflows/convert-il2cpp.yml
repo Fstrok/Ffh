@@ -9,6 +9,11 @@ on:
 
 permissions:
   contents: read
+  actions: read
+
+concurrency:
+  group: ffh-il2cpp-convert
+  cancel-in-progress: true
 
 jobs:
   convert:
@@ -24,61 +29,82 @@ jobs:
           sudo apt-get install -y p7zip-full curl python3-pip jq
           python3 -m pip install --break-system-packages --upgrade gdown
 
-      - name: Restore Unity cache
-        id: unity-cache
-        uses: actions/cache@v4
+      - name: Download cached Unity Android port toolchain
+        uses: actions/download-artifact@v4
         with:
-          path: ~/UnityEditors/6000.2.6f2
-          key: unity-6000.2.6f2-android-v1
+          name: ffh-unity-6000.2.6f2-toolchain
+          path: work/toolchain-artifact
+          github-token: ${{ github.token }}
+          repository: Fstrok/Ffh
+          run-id: 36548508409
 
-      - name: Install Unity 6000.2.6f2 + Android support
-        if: steps.unity-cache.outputs.cache-hit != 'true'
+      - name: Expand Unity Android port toolchain
         run: |
           set -euxo pipefail
-          curl -fsSL https://unity.com/install.sh | bash
-          export PATH="$HOME/.local/bin:$PATH"
-          mkdir -p "$HOME/UnityEditors"
-          unity install-path --set "$HOME/UnityEditors"
-          unity install 6000.2.6f2 -m android --no-child-modules --yes --accept-eula
-          EDITOR="$HOME/UnityEditors/6000.2.6f2"
-          test -d "$EDITOR/Editor/Data/il2cpp/build/deploy"
-          test -d "$EDITOR/Editor/Data/MonoBleedingEdge/lib/mono/unityaot-linux"
-          test -d "$EDITOR/Editor/Data/PlaybackEngines/AndroidPlayer/Variations/il2cpp/Managed"
-
-      - name: Resolve Unity paths
-        run: |
-          set -euxo pipefail
-          EDITOR="$HOME/UnityEditors/6000.2.6f2"
+          mkdir -p work/toolchain
+          tar -xJf work/toolchain-artifact/ffh-unity-6000.2.6f2-toolchain.tar.xz -C work/toolchain
+          EDITOR="$GITHUB_WORKSPACE/work/toolchain/toolchain"
           test -d "$EDITOR/Editor/Data/il2cpp/build/deploy"
           test -d "$EDITOR/Editor/Data/MonoBleedingEdge/lib/mono/unityaot-linux"
           test -d "$EDITOR/Editor/Data/PlaybackEngines/AndroidPlayer/Variations/il2cpp/Managed"
           echo "EDITOR=$EDITOR" >> "$GITHUB_ENV"
 
-      - name: Save Unity cache now
-        if: steps.unity-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+      - name: Restore cached FFH v1.177 inner archive
+        id: ffh-cache
+        uses: actions/cache/restore@v4
         with:
-          path: ~/UnityEditors/6000.2.6f2
-          key: unity-6000.2.6f2-android-v1
+          path: work/game-cache/FEMBOY_FUTA_HOUSE-v1.177.zip
+          key: ffh-v1.177-inner-3659065573-v1
 
-      - name: Download and extract FFH v1.177
+      - name: Download FFH archive once
+        if: steps.ffh-cache.outputs.cache-hit != 'true'
         env:
           GAME_URL: https://drive.google.com/file/d/1ov6ggWc__WXLzMxePESUStjRg5MmhtbX/view?usp=drivesdk
-          INNER_PASSWORD: Downloaded from Porno-Island
         run: |
           set -euxo pipefail
-          mkdir -p work/outer work/game
-          gdown "$GAME_URL" -O work/outer.zip
+          mkdir -p work/outer work/game-cache
+          ok=0
+          for wait_s in 0 30 90; do
+            [ "$wait_s" -gt 0 ] && sleep "$wait_s"
+            rm -f work/outer.zip
+            if gdown "$GAME_URL" -O work/outer.zip && [ "$(stat -c %s work/outer.zip)" = "4882324669" ]; then
+              ok=1
+              break
+            fi
+          done
+          if [ "$ok" != 1 ]; then
+            echo "gdown failed; trying direct Google Drive download"
+            rm -f work/outer.zip
+            curl -fL --retry 5 --retry-all-errors --retry-delay 15               "https://drive.usercontent.google.com/download?id=1ov6ggWc__WXLzMxePESUStjRg5MmhtbX&export=download&confirm=t"               -o work/outer.zip
+            test "$(stat -c %s work/outer.zip)" = "4882324669"
+          fi
           7z x -y work/outer.zip -owork/outer 'Femboy_Futa_House/FEMBOY FUTA HOUSE-v1.177.zip'
           INNER="$(find work/outer -type f -iname 'FEMBOY FUTA HOUSE-v1.177.zip' -print -quit)"
           test -n "$INNER"
+          test "$(stat -c %s "$INNER")" = "3659065573"
+          mv "$INNER" work/game-cache/FEMBOY_FUTA_HOUSE-v1.177.zip
+          rm -rf work/outer work/outer.zip
+
+      - name: Save FFH archive cache now
+        if: steps.ffh-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: work/game-cache/FEMBOY_FUTA_HOUSE-v1.177.zip
+          key: ffh-v1.177-inner-3659065573-v1
+
+      - name: Extract FFH v1.177
+        env:
+          INNER_PASSWORD: Downloaded from Porno-Island
+        run: |
+          set -euxo pipefail
+          mkdir -p work/game
+          INNER=work/game-cache/FEMBOY_FUTA_HOUSE-v1.177.zip
+          test "$(stat -c %s "$INNER")" = "3659065573"
           7z x -y -p"$INNER_PASSWORD" "$INNER" -owork/game
           DATA="$(find work/game -type d -name 'Femboy Futa House_Data' -print -quit)"
           test -d "$DATA/Managed"
           test -f "$DATA/ScriptingAssemblies.json"
           echo "DATA=$DATA" >> "$GITHUB_ENV"
-          rm -f work/outer.zip "$INNER"
-          rm -rf work/outer
           du -sh work/game
 
       - name: Stage Android IL2CPP assembly set
