@@ -65,7 +65,7 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p work/outer work/game
-          7z x -y work/outer.zip -owork/outer '*FEMBOY FUTA HOUSE-v1.177.zip'
+          7z x -y work/outer.zip -owork/outer 'Femboy_Futa_House/FEMBOY FUTA HOUSE-v1.177.zip'
           INNER="$(find work/outer -type f -iname 'FEMBOY FUTA HOUSE-v1.177.zip' -print -quit)"
           test -n "$INNER"
           ls -lh "$INNER"
