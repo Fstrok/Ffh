@@ -1,0 +1,33 @@
+name: Build Bundle Surgery Tool
+
+on:
+  push:
+    branches: [ main ]
+    paths: [".github/workflows/build-bundle-surgery.yml"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build tool
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 https://github.com/jakobkhansen/SilksongAndroid.git ss
+          dotnet build ss/tools/bundle-surgery/BundleSurgery.csproj -c Release
+          O=ss/tools/bundle-surgery/bin/Release/net8.0
+          test -f "$O/BundleSurgery.dll"
+          test -f "$O/classdata.tpk"
+          tar -C "$O" -czf bundle-surgery-net8.tgz .
+          ls -lh bundle-surgery-net8.tgz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-surgery-net8
+          path: bundle-surgery-net8.tgz
+          compression-level: 0
+          retention-days: 7
