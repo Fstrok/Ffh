@@ -1,0 +1,47 @@
+name: Extract FFH Mirror Targets
+on:
+  push:
+    branches: [ main ]
+    paths: [".github/workflows/extract-mirror-targets.yml"]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  extract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract targets from go pages
+        run: |
+          set -euxo pipefail
+          mkdir -p work
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
+          for ID in 102216 102217 102218 102219 102220; do
+            curl -sS -L --compressed -A "$UA" "https://skidrowgamereloaded.co/go/$ID" -o "work/$ID.html"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, html
+          for p in sorted(Path('work').glob('*.html')):
+              s=p.read_text(errors='ignore')
+              print('\n===',p.stem,'bytes',len(s),'===')
+              for line in s.splitlines():
+                  lo=line.lower()
+                  if any(k in lo for k in ('pixeldrain','gofile','mediafire','1fichier','mega.nz','destination','target','redirect','url','countdown')):
+                      clean=html.unescape(line.strip())
+                      if len(clean)<5000: print(clean)
+              print('--- URL scan ---')
+              urls=[]
+              # decode common JSON escapes first
+              q=html.unescape(s).replace('\\/','/')
+              for m in re.findall(r'https?://[^\s"\'<>]+',q,re.I):
+                  if any(k in m.lower() for k in ('pixeldrain','gofile','mediafire','1fichier','mega.nz')):
+                      urls.append(m)
+              for u in dict.fromkeys(urls): print(u)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffh-mirror-target-pages
+          path: work
+          retention-days: 1
