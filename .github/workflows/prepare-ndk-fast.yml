@@ -1,0 +1,48 @@
+name: Prepare Fast Android NDK ARM64
+
+on:
+  push:
+    branches: [ main ]
+    paths: [".github/workflows/prepare-ndk-fast.yml"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  ndk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pack only ARM64 API33 NDK
+        run: |
+          set -euxo pipefail
+          NDK="$(find "$ANDROID_SDK_ROOT/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          P="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
+          test -x "$P/bin/clang"
+          echo "Using $NDK"
+          cat "$NDK/source.properties"
+
+          O=ndk-fast
+          mkdir -p "$O/bin" "$O/lib" "$O/sysroot/usr/lib/aarch64-linux-android"
+          cp -L "$P/bin/clang" "$O/bin/clang"
+          cp -L "$P/bin/clang++" "$O/bin/clang++"
+          cp -L "$P/bin/ld.lld" "$O/bin/ld.lld"
+          cp -L "$P/bin/llvm-ar" "$O/bin/llvm-ar"
+          cp -L "$P/bin/llvm-ranlib" "$O/bin/llvm-ranlib"
+          cp -a "$P/lib/clang" "$O/lib/"
+          cp -a "$P/sysroot/usr/include" "$O/sysroot/usr/"
+          cp -a "$P/sysroot/usr/lib/aarch64-linux-android/33" "$O/sysroot/usr/lib/aarch64-linux-android/"
+          find "$P/sysroot/usr/lib/aarch64-linux-android" -maxdepth 1 -type f             \( -name 'libc++*.a' -o -name 'libunwind.a' -o -name 'libandroid_support.a' -o -name '*.o' \)             -exec cp -a {} "$O/sysroot/usr/lib/aarch64-linux-android/" \;
+
+          du -sh "$O"
+          tar -cf android-ndk-arm64-api33.tar "$O"
+          ls -lh android-ndk-arm64-api33.tar
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-ndk-arm64-api33
+          path: android-ndk-arm64-api33.tar
+          compression-level: 0
+          retention-days: 7
