@@ -1,0 +1,28 @@
+name: FFH Drive Range Smoke Test
+on:
+  push:
+    branches: [ main ]
+    paths: [".github/workflows/range-smoke.yml"]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe three exact ranges
+        run: |
+          set -euxo pipefail
+          URL='https://drive.usercontent.google.com/download?id=1ov6ggWc__WXLzMxePESUStjRg5MmhtbX&export=download&confirm=t'
+          probe() {
+            n="$1"; a="$2"; b="$3"; expect=$((b-a+1))
+            curl -fL --retry 3 --retry-all-errors --max-time 60 --max-filesize "$expect" -r "$a-$b" "$URL" -o "$n.bin"
+            test "$(stat -c %s "$n.bin")" = "$expect"
+            sha256sum "$n.bin"
+          }
+          probe begin 0 1048575
+          probe middle 2147483648 2148532223
+          probe end 4881276093 4882324668
+          file begin.bin
+          echo RANGE_SMOKE=PASS
