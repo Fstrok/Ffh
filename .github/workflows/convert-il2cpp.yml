@@ -97,6 +97,14 @@ jobs:
           names=set(obj["names"])
           ng=add_dir(managed,names,label="game")
 
+          # netstandard is a facade referenced by FFH assemblies but is not
+          # listed in ScriptingAssemblies.json. IL2CPP must resolve it up front.
+          ns=managed/"netstandard.dll"
+          if ns.is_file() and ns.name not in seen:
+              shutil.copy2(ns,out/ns.name)
+              seen.add(ns.name)
+              srcmap[ns.name]="game-facade:"+str(ns)
+
           # Do not allow a second desktop BCL profile into the conversion.
           forbidden=[]
           for p in out.glob("*.dll"):
