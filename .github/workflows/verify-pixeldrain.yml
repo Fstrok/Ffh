@@ -25,7 +25,7 @@ jobs:
           set -euxo pipefail
           mkdir -p probe
           7z l ffh.rar | tee archive-list.txt
-          7z e -y ffh.rar -oprobe '*Assembly-CSharp.dll'
+          7z e -y ffh.rar -oprobe 'FEMBOY FUTA HOUSE/Femboy Futa House_Data/Managed/Assembly-CSharp.dll'
           find probe -type f -printf '%p %s\n'
           GOT="$(sha256sum probe/Assembly-CSharp.dll | cut -d' ' -f1)"
           echo "mirror Assembly-CSharp SHA256=$GOT"
