@@ -55,9 +55,65 @@ jobs:
           find core -type f -exec sha256sum {} + | sort -k2 > core/sha256.txt
           rm -f ffh.rar
 
+      - name: Pack and split core
+        run: |
+          set -euxo pipefail
+          tar -C core -cf core.tar .
+          split -b 140M -d -a 2 core.tar core.part.
+          ls -lh core.part.*
+
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-core-player-data
-          path: core
-          compression-level: 6
-          retention-days: 7
+          name: core-part-00
+          path: core.part.00
+          compression-level: 0
+          retention-days: 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-part-01
+          path: core.part.01
+          compression-level: 0
+          retention-days: 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-part-02
+          path: core.part.02
+          compression-level: 0
+          retention-days: 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-part-03
+          path: core.part.03
+          compression-level: 0
+          retention-days: 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-part-04
+          path: core.part.04
+          compression-level: 0
+          retention-days: 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-part-05
+          path: core.part.05
+          compression-level: 0
+          retention-days: 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-part-06
+          path: core.part.06
+          compression-level: 0
+          retention-days: 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-part-07
+          path: core.part.07
+          compression-level: 0
+          retention-days: 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-part-08
+          path: core.part.08
+          compression-level: 0
+          if-no-files-found: ignore
+          retention-days: 2
