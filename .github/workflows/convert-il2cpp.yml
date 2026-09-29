@@ -185,6 +185,21 @@ jobs:
           test "$RC" -eq 0
           test -s "$DAT/Metadata/global-metadata.dat"
 
+      - name: Pack successful IL2CPP output
+        if: success()
+        run: |
+          set -euxo pipefail
+          tar -C work/il2cpp -cJf work/FFH-il2cpp-output.tar.xz cpp data assemblies assembly-list.txt assembly-sources.json result.txt
+          ls -lh work/FFH-il2cpp-output.tar.xz
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: FFH-il2cpp-output
+          path: work/FFH-il2cpp-output.tar.xz
+          compression-level: 0
+          retention-days: 7
+
       - name: Pack conversion diagnostics
         if: always()
         run: |
