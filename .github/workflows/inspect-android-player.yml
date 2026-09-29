@@ -36,7 +36,20 @@ jobs:
           mkdir -p work/android-support
           7z x -y work/android-support.exe -owork/android-support > work/extract.log
           du -sh work/android-support
-          find work/android-support -type f > work/all-files.txt
+          echo "=== top-level extracted ==="
+          find work/android-support -maxdepth 2 -type f -printf '%p %s bytes\n'
+          PAYLOAD="$(find work/android-support -maxdepth 1 -type f -name '[[]0[]]' -print -quit)"
+          if [ -n "$PAYLOAD" ]; then
+            echo "=== payload info ==="
+            file "$PAYLOAD" || true
+            xxd -l 128 "$PAYLOAD" || true
+            7z l "$PAYLOAD" > work/payload-list.txt 2>&1 || true
+            head -120 work/payload-list.txt || true
+            mkdir -p work/payload
+            7z x -y "$PAYLOAD" -owork/payload > work/payload-extract.log 2>&1 || true
+            du -sh work/payload || true
+          fi
+          find work/android-support work/payload -type f 2>/dev/null > work/all-files.txt
           grep -Ei             'AndroidPlayer|Variations|mono|il2cpp|armv7|arm64|libunity|libmain|gradle|launcher|unityLibrary|classes.jar|UnityPlayer'             work/all-files.txt > work/interesting-files.txt || true
           wc -l work/all-files.txt work/interesting-files.txt
           sed -n '1,1000p' work/interesting-files.txt
@@ -47,6 +60,8 @@ jobs:
           cp work/installer-list.txt work/report/
           cp work/interesting-files.txt work/report/
           cp work/extract.log work/report/
+          cp work/payload-list.txt work/report/ 2>/dev/null || true
+          cp work/payload-extract.log work/report/ 2>/dev/null || true
           python3 - <<'PY'
           from pathlib import Path
           import json, os, hashlib
