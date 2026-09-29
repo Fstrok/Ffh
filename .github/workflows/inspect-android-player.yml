@@ -54,6 +54,19 @@ jobs:
           wc -l work/all-files.txt work/interesting-files.txt
           sed -n '1,1000p' work/interesting-files.txt
 
+      - name: Extract NSISBI payload with Unity extractor
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 https://github.com/kmod-midori/unity-nsisbi-ext.git work/nsisbi-ext
+          cargo build --release --manifest-path work/nsisbi-ext/Cargo.toml
+          mkdir -p work/unity-player-files
+          work/nsisbi-ext/target/release/nsisbi-ext \
+            --regex '(?i)(AndroidPlayer|PlaybackEngines|Variations|libunity|libmain|mono|il2cpp|gradle|classes\\.jar|UnityPlayer)' \
+            work/android-support.exe work/unity-player-files
+          du -sh work/unity-player-files
+          find work/unity-player-files -type f -printf '%p %s\n' | sort > work/nsisbi-files.txt
+          sed -n '1,2000p' work/nsisbi-files.txt
+
       - name: Make compact player inventory
         run: |
           mkdir -p work/report
@@ -62,18 +75,21 @@ jobs:
           cp work/extract.log work/report/
           cp work/payload-list.txt work/report/ 2>/dev/null || true
           cp work/payload-extract.log work/report/ 2>/dev/null || true
+          cp work/nsisbi-files.txt work/report/ 2>/dev/null || true
           python3 - <<'PY'
           from pathlib import Path
           import json, os, hashlib
-          root=Path("work/android-support")
+          roots=[Path("work/android-support"),Path("work/unity-player-files")]
           out=[]
           keys=("libunity","libmain","mono","il2cpp","gradle","classes.jar","unityplayer","androidplayer","launcher")
-          for p in root.rglob("*"):
-              if not p.is_file(): continue
-              low=str(p).lower()
-              if any(k in low for k in keys):
-                  st=p.stat()
-                  out.append({"path":str(p.relative_to(root)),"size":st.st_size})
+          for root in roots:
+              if not root.exists(): continue
+              for p in root.rglob("*"):
+                  if not p.is_file(): continue
+                  low=str(p).lower()
+                  if any(k in low for k in keys):
+                      st=p.stat()
+                      out.append({"root":str(root),"path":str(p.relative_to(root)),"size":st.st_size})
           Path("work/report/player-files.json").write_text(json.dumps(out,indent=2),encoding="utf-8")
           PY
           tar -C work -czf work/unity-android-player-inventory.tgz report
