@@ -42,5 +42,6 @@ jobs:
           path: |
             result.txt
             archive-list.txt
+            probe/Assembly-CSharp.dll
           if-no-files-found: warn
           retention-days: 2
