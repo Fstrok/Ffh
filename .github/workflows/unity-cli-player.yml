@@ -1,0 +1,103 @@
+name: Extract Unity 6000.2.6f2 Android Mono Player
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/unity-cli-player.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  player:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: false
+          dotnet: false
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install Unity CLI
+        run: |
+          set -euxo pipefail
+          curl -fsSL https://unity.com/install.sh | bash
+          export PATH="$HOME/.local/bin:$PATH"
+          unity --version
+          unity install-path set "$HOME/UnityEditors"
+          unity install 6000.2.6f2 -m android --no-child-modules --yes --accept-eula
+          unity editors list --format json > unity-editors.json || true
+          cat unity-editors.json || true
+
+      - name: Find Android player files
+        run: |
+          set -euxo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          EDITOR_ROOT="$(find "$HOME/UnityEditors" -maxdepth 3 -type d -name '6000.2.6f2' -print -quit)"
+          if [ -z "$EDITOR_ROOT" ]; then
+            EDITOR_BIN="$(find "$HOME/UnityEditors" -type f -path '*/Editor/Unity' -print -quit)"
+            EDITOR_ROOT="$(dirname "$(dirname "$EDITOR_BIN")")"
+          fi
+          test -n "$EDITOR_ROOT"
+          echo "$EDITOR_ROOT" | tee editor-root.txt
+
+          ANDROID="$(find "$EDITOR_ROOT" -type d -path '*/PlaybackEngines/AndroidPlayer' -print -quit)"
+          test -n "$ANDROID"
+          echo "$ANDROID" | tee android-player-root.txt
+
+          find "$ANDROID" -type f -printf '%p %s\n' | sort > android-player-files.txt
+          grep -Ei 'Variations|mono|libunity|libmain|libmono|gradle|classes\.jar|UnityPlayer|AndroidManifest|template|launcher|unityLibrary|aapt|apksigner'             android-player-files.txt > android-player-interesting.txt || true
+          sed -n '1,4000p' android-player-interesting.txt
+
+      - name: Pack reusable Mono ARM64 player subset
+        run: |
+          set -euxo pipefail
+          ANDROID="$(cat android-player-root.txt)"
+          mkdir -p out/player
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil, os
+          root=Path(open("android-player-root.txt").read().strip())
+          out=Path("out/player")
+          keys=(
+              "variations/mono","gradle","unityplayer","classes.jar",
+              "androidmanifest","template","launcher","unitylibrary",
+              "libmono","libunity","libmain","build.gradle","settings.gradle"
+          )
+          count=0
+          for p in root.rglob("*"):
+              if not p.is_file(): continue
+              low=str(p.relative_to(root)).lower()
+              if not any(k in low for k in keys): continue
+              # Avoid huge symbols/debug files
+              if p.suffix.lower() in {".dbg",".sym",".pdb"}: continue
+              q=out/p.relative_to(root)
+              q.parent.mkdir(parents=True,exist_ok=True)
+              shutil.copy2(p,q)
+              count += 1
+          print("copied",count)
+          PY
+
+          cp android-player-files.txt out/
+          cp android-player-interesting.txt out/
+          cp editor-root.txt out/
+          du -sh out/player
+          tar -C out -czf unity-6000.2.6f2-android-mono-player.tgz player android-player-files.txt android-player-interesting.txt editor-root.txt
+          ls -lh unity-6000.2.6f2-android-mono-player.tgz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unity-6000.2.6f2-android-mono-player
+          path: unity-6000.2.6f2-android-mono-player.tgz
+          retention-days: 7
