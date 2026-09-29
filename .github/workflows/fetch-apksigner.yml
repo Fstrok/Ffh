@@ -1,0 +1,29 @@
+name: Fetch Android APK Signer
+on:
+  push:
+    branches: [ main ]
+    paths: [".github/workflows/fetch-apksigner.yml"]
+permissions:
+  contents: read
+jobs:
+  signer:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package apksigner
+        run: |
+          set -euxo pipefail
+          BT="$(find "$ANDROID_SDK_ROOT/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          test -f "$BT/lib/apksigner.jar"
+          mkdir -p out/lib
+          cp -a "$BT/apksigner" out/
+          cp -a "$BT/lib/apksigner.jar" out/lib/
+          cp -a "$BT/zipalign" out/
+          printf '%s\n' "$(basename "$BT")" > out/version.txt
+          ls -lh out out/lib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apksigner-full
+          path: out
+          compression-level: 0
+          retention-days: 7
