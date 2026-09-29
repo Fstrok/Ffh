@@ -28,25 +28,84 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      - name: Install tools
+      - name: Check tools
         run: |
           set -euxo pipefail
-          sudo apt-get update
-          sudo apt-get install -y p7zip-full dotnet-sdk-8.0 git curl
+          7z >/dev/null
+          dotnet --version
+          git --version
+          curl --version | head -1
 
-      - name: Download exact original source
+      - name: Download exact original source by byte ranges
         run: |
           set -euxo pipefail
           URL='https://drive.usercontent.google.com/download?id=1ov6ggWc__WXLzMxePESUStjRg5MmhtbX&export=download&confirm=t'
-          curl -fL --retry 6 --retry-all-errors --retry-delay 3 "$URL" -o outer.zip
-          test "$(stat -c %s outer.zip)" = "4882324669"
-          mkdir -p outer
+          TOTAL=4882324669
+          CHUNK=33554432
+          mkdir -p ranges outer
+
+          python3 - <<'PY' > ranges/jobs.txt
+          total=4882324669
+          chunk=33554432
+          i=0
+          for start in range(0,total,chunk):
+              end=min(total-1,start+chunk-1)
+              print(f"{i:04d} {start} {end}")
+              i+=1
+          PY
+          echo "range parts: $(wc -l < ranges/jobs.txt)"
+
+          cat > ranges/get.sh <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          idx="$1"; start="$2"; end="$3"
+          URL="$4"
+          out="ranges/part-$idx"
+          expect=$((end-start+1))
+          [ -f "$out" ] && [ "$(stat -c %s "$out")" = "$expect" ] && exit 0
+          for attempt in 1 2 3 4 5; do
+            tmp="$out.tmp"
+            rm -f "$tmp"
+            if curl -fL --silent --show-error --retry 2 --retry-all-errors --retry-delay 1 \
+                 --connect-timeout 20 --max-time 240 --max-filesize "$expect" \
+                 -r "$start-$end" "$URL" -o "$tmp"; then
+              got="$(stat -c %s "$tmp" 2>/dev/null || echo 0)"
+              if [ "$got" = "$expect" ]; then
+                mv "$tmp" "$out"
+                echo "$idx OK $got"
+                exit 0
+              fi
+              echo "$idx bad-size $got expected $expect" >&2
+            fi
+            rm -f "$tmp"
+            sleep $((attempt*2))
+          done
+          echo "$idx FAILED" >&2
+          exit 1
+          SH
+          chmod +x ranges/get.sh
+
+          awk '{print $1" "$2" "$3}' ranges/jobs.txt | \
+            xargs -n3 -P8 bash -c 'ranges/get.sh "$1" "$2" "$3" "$4"' _ {} {} {} "$URL"
+
+          test "$(find ranges -type f -name 'part-*' | wc -l)" = "$(wc -l < ranges/jobs.txt)"
+          cat $(find ranges -type f -name 'part-*' | sort) > outer.zip
+          test "$(stat -c %s outer.zip)" = "$TOTAL"
+          7z t outer.zip >/dev/null
+
           7z x -y outer.zip -oouter 'Femboy_Futa_House/FEMBOY FUTA HOUSE-v1.177.zip'
           INNER="$(find outer -type f -iname 'FEMBOY FUTA HOUSE-v1.177.zip' -print -quit)"
           test -n "$INNER"
           test "$(stat -c %s "$INNER")" = "3659065573"
+
+          mkdir -p verify
+          7z e -y -p'Downloaded from Porno-Island' "$INNER" -overify \
+            'FEMBOY FUTA HOUSE-v1.177/Femboy Futa House_Data/Managed/Assembly-CSharp.dll'
+          test "$(sha256sum verify/Assembly-CSharp.dll | cut -d' ' -f1)" = \
+            "d5c36732476cd51ad19259e842f2551f6cbc0165cdb839d23d03eb2d67e4beb6"
+
           mv "$INNER" inner.zip
-          rm -rf outer outer.zip
+          rm -rf outer outer.zip ranges verify
 
       - name: Extract exact full player data
         env:
