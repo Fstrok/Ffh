@@ -1,0 +1,47 @@
+name: Test Unity 6 Headless Build Access
+on:
+  push:
+    branches: [ main ]
+    paths: [".github/workflows/test-unity-headless.yml"]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore Unity cache
+        id: unity-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/UnityEditors/6000.2.6f2
+          key: unity-6000.2.6f2-android-v1
+      - name: Install Unity when cache is cold
+        if: steps.unity-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL https://unity.com/install.sh | bash
+          export PATH="$HOME/.local/bin:$PATH"
+          mkdir -p "$HOME/UnityEditors"
+          unity install-path --set "$HOME/UnityEditors"
+          unity install 6000.2.6f2 --yes --accept-eula
+      - name: Make minimal project
+        run: |
+          mkdir -p p/Assets p/ProjectSettings
+          printf 'm_EditorVersion: 6000.2.6f2\n' > p/ProjectSettings/ProjectVersion.txt
+      - name: Run Unity Editor headless
+        run: |
+          set +e
+          U="$HOME/UnityEditors/6000.2.6f2/Editor/Unity"
+          "$U" -batchmode -nographics -quit -projectPath "$PWD/p" -logFile "$PWD/unity.log"
+          RC=$?
+          echo "RC=$RC"
+          tail -300 unity.log
+          exit "$RC"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unity-headless-log
+          path: unity.log
+          retention-days: 3
