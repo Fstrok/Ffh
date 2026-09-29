@@ -34,23 +34,46 @@ jobs:
         run: |
           set -euxo pipefail
           URL='https://drive.usercontent.google.com/download?id=1ov6ggWc__WXLzMxePESUStjRg5MmhtbX&export=download&confirm=t'
-          EXPECT=$((END-START+1))
-          ok=0
-          for attempt in 1 2 3 4 5 6; do
-            rm -f range.bin
-            if curl -fL --retry 2 --retry-all-errors --retry-delay 1 \
-                 --connect-timeout 30 --max-time 900 --max-filesize "$EXPECT" \
-                 -r "$START-$END" "$URL" -o range.bin; then
-              GOT="$(stat -c %s range.bin)"
-              if [ "$GOT" = "$EXPECT" ]; then
-                ok=1
-                break
-              fi
-              echo "bad size $GOT expected $EXPECT" >&2
-            fi
-            sleep $((attempt*5))
+          CHUNK=33554432
+          mkdir -p pieces
+          : > jobs.txt
+          n=0
+          p="$START"
+          while [ "$p" -le "$END" ]; do
+            q=$((p+CHUNK-1))
+            [ "$q" -gt "$END" ] && q="$END"
+            printf '%04d %s %s\n' "$n" "$p" "$q" >> jobs.txt
+            n=$((n+1)); p=$((q+1))
           done
-          test "$ok" = 1
+
+          while read -r idx a b; do
+            expect=$((b-a+1))
+            out="pieces/$idx"
+            ok=0
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do
+              rm -f "$out.tmp"
+              if curl -fL --silent --show-error --retry 2 --retry-all-errors --retry-delay 1 \
+                   --connect-timeout 20 --max-time 180 --max-filesize "$expect" \
+                   -r "$a-$b" "$URL" -o "$out.tmp"; then
+                got="$(stat -c %s "$out.tmp" 2>/dev/null || echo 0)"
+                if [ "$got" = "$expect" ]; then
+                  mv "$out.tmp" "$out"; ok=1
+                  echo "$idx OK $got"
+                  break
+                fi
+                echo "$idx bad-size=$got expect=$expect attempt=$attempt" >&2
+              fi
+              rm -f "$out.tmp"
+              sleep $((attempt*3))
+            done
+            test "$ok" = 1
+            # Gentle pacing prevents Drive from tripping its per-client limiter.
+            sleep 1
+          done < jobs.txt
+
+          cat $(find pieces -type f | sort) > range.bin
+          EXPECT=$((END-START+1))
+          test "$(stat -c %s range.bin)" = "$EXPECT"
           sha256sum range.bin | tee range.sha256
           ls -lh range.bin
 
