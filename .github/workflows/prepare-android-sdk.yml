@@ -1,0 +1,48 @@
+name: Prepare Android APK Tools
+
+on:
+  push:
+    branches: [ main ]
+    paths: [".github/workflows/prepare-android-sdk.yml"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  sdk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pack Android APK build tools
+        run: |
+          set -euxo pipefail
+          SDK="$ANDROID_SDK_ROOT"
+          BT="$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          PLATFORM="$(find "$SDK/platforms" -mindepth 1 -maxdepth 1 -type d -name 'android-*' | sort -V | tail -1)"
+          test -x "$BT/aapt2"
+          test -x "$BT/zipalign"
+          test -f "$BT/apksigner"
+          test -f "$BT/lib/d8.jar"
+          test -f "$PLATFORM/android.jar"
+
+          O=android-apk-tools
+          mkdir -p "$O/build-tools/lib" "$O/platform"
+          cp -aL "$BT/aapt2" "$O/build-tools/"
+          cp -aL "$BT/zipalign" "$O/build-tools/"
+          cp -aL "$BT/apksigner" "$O/build-tools/"
+          cp -a "$BT/lib/d8.jar" "$O/build-tools/lib/"
+          cp -a "$PLATFORM/android.jar" "$O/platform/"
+          printf 'build-tools=%s\nplatform=%s\n' "$(basename "$BT")" "$(basename "$PLATFORM")" > "$O/version.txt"
+          cat "$O/version.txt"
+          tar -czf android-apk-tools.tar.gz "$O"
+          ls -lh android-apk-tools.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-tools
+          path: android-apk-tools.tar.gz
+          compression-level: 0
+          retention-days: 7
