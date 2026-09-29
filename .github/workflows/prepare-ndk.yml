@@ -1,4 +1,4 @@
-name: Prepare Android NDK subset
+name: Prepare Android NDK r27c Exact
 
 on:
   push:
@@ -12,45 +12,39 @@ permissions:
 jobs:
   ndk:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Locate NDK
-        run: |
-          set -euxo pipefail
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          ls -la "$ANDROID_SDK_ROOT/ndk" || true
-          NDK="$(find "$ANDROID_SDK_ROOT/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
-          test -d "$NDK/toolchains/llvm/prebuilt/linux-x86_64"
-          echo "NDK=$NDK" >> "$GITHUB_ENV"
-          cat "$NDK/source.properties"
 
-      - name: Pack minimal Linux host ARM64 toolchain
+      - name: Download exact NDK r27c
         run: |
           set -euxo pipefail
-          P="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
-          O=ndk-min
-          mkdir -p "$O/bin" "$O/lib" "$O/sysroot"
-          for f in clang clang++ ld.lld llvm-ar llvm-ranlib llvm-strip; do
-            cp -L "$P/bin/$f" "$O/bin/$f"
-          done
-          # Clang builtin headers/libraries.
+          curl -fL --retry 5 --retry-all-errors --retry-delay 3             https://dl.google.com/android/repository/android-ndk-r27c-linux.zip             -o ndk.zip
+          test "$(stat -c %s ndk.zip)" = "663987688"
+          echo "090e8083a715fdb1a3e402d0763c388abb03fb4e  ndk.zip" | sha1sum -c -
+
+      - name: Pack minimal r27c ARM64 toolchain
+        run: |
+          set -euxo pipefail
+          unzip -q ndk.zip -d raw
+          P=raw/android-ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64
+          test -x "$P/bin/clang"
+          O=ndk-r27c
+          mkdir -p "$O/bin" "$O/lib"
+          cp -a "$P/sysroot" "$O/"
           cp -a "$P/lib/clang" "$O/lib/"
-          # Android headers and target libraries, including libc++.
-          cp -a "$P/sysroot/usr" "$O/sysroot/"
-          # Small wrapper names are useful for build scripts.
-          for api in 26 28 33 35; do
-            [ -e "$P/bin/aarch64-linux-android$api-clang" ] && cp -L "$P/bin/aarch64-linux-android$api-clang" "$O/bin/aarch64-linux-android$api-clang"
-            [ -e "$P/bin/aarch64-linux-android$api-clang++" ] && cp -L "$P/bin/aarch64-linux-android$api-clang++" "$O/bin/aarch64-linux-android$api-clang++"
+          for x in clang clang++ ld.lld lld llvm-ar llvm-ranlib llvm-strip llvm-readelf; do
+            [ -e "$P/bin/$x" ] && cp -aL "$P/bin/$x" "$O/bin/$x"
           done
-          find "$O" -type f -printf '%p %s\n' | sort > ndk-files.txt
+          "$P/bin/clang++" --version | tee "$O/version.txt"
+          grep -q "clang version 18" "$O/version.txt"
           du -sh "$O"
-          tar -cJf android-ndk-arm64-min.tar.xz "$O"
-          ls -lh android-ndk-arm64-min.tar.xz
+          tar -cJf android-ndk-r27c-min.tar.xz "$O"
+          ls -lh android-ndk-r27c-min.tar.xz
 
       - uses: actions/upload-artifact@v4
         with:
-          name: android-ndk-arm64-min
-          path: android-ndk-arm64-min.tar.xz
+          name: android-ndk-r27c-exact
+          path: android-ndk-r27c-min.tar.xz
           compression-level: 0
           retention-days: 7
