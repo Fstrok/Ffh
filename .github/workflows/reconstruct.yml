@@ -143,6 +143,7 @@ jobs:
           mkdir -p work/exported/ExportedProject/Assets/Editor
           cp unity/FFHInputActionsPostprocessor.cs work/exported/ExportedProject/Assets/Editor/FFHInputActionsPostprocessor.cs
           cp unity/FFHAndroidBuilder.cs work/exported/ExportedProject/Assets/Editor/FFHAndroidBuilder.cs
+          python3 scripts/patch_mobile_generated_controls.py work/exported/ExportedProject
 
       - name: Build compact diagnostics
         run: |
