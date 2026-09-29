@@ -60,12 +60,26 @@ jobs:
           git clone --depth 1 https://github.com/kmod-midori/unity-nsisbi-ext.git work/nsisbi-ext
           cargo build --release --manifest-path work/nsisbi-ext/Cargo.toml
           mkdir -p work/unity-player-files
+          set +e
           work/nsisbi-ext/target/release/nsisbi-ext \
             --regex '(?i)(AndroidPlayer|PlaybackEngines|Variations|libunity|libmain|mono|il2cpp|gradle|classes\\.jar|UnityPlayer)' \
             work/android-support.exe work/unity-player-files
+          NSISBI_RC=$?
+          set -e
+          echo "unity-nsisbi-ext rc=$NSISBI_RC"
+
+          git clone --depth 1 https://github.com/KokerZhou/NSISExtractor.git work/NSISExtractor
+          python3 -m pip install --break-system-packages work/NSISExtractor
+          rm -rf work/unity-player-files
+          mkdir -p work/unity-player-files
+          nsisextract --info work/android-support.exe | tee work/nsis-info.txt
+          nsisextract --list work/android-support.exe > work/nsis-list.txt
+          nsisextract --output-dir work/unity-player-files work/android-support.exe
+
           du -sh work/unity-player-files
           find work/unity-player-files -type f -printf '%p %s\n' | sort > work/nsisbi-files.txt
-          sed -n '1,2000p' work/nsisbi-files.txt
+          grep -Ei 'AndroidPlayer|PlaybackEngines|Variations|libunity|libmain|mono|il2cpp|gradle|classes\\.jar|UnityPlayer' work/nsisbi-files.txt > work/nsisbi-interesting.txt || true
+          sed -n '1,3000p' work/nsisbi-interesting.txt
 
       - name: Make compact player inventory
         run: |
@@ -76,6 +90,9 @@ jobs:
           cp work/payload-list.txt work/report/ 2>/dev/null || true
           cp work/payload-extract.log work/report/ 2>/dev/null || true
           cp work/nsisbi-files.txt work/report/ 2>/dev/null || true
+          cp work/nsisbi-interesting.txt work/report/ 2>/dev/null || true
+          cp work/nsis-info.txt work/report/ 2>/dev/null || true
+          cp work/nsis-list.txt work/report/ 2>/dev/null || true
           python3 - <<'PY'
           from pathlib import Path
           import json, os, hashlib
