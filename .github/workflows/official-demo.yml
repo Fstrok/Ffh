@@ -1,0 +1,64 @@
+name: Inspect Official FFH Android Demo
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/official-demo.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download official TopHouse Android demo
+        run: |
+          set -euxo pipefail
+          mkdir -p work/demo
+          curl -fL --retry 5 --retry-delay 3             "https://builds.tophouse.fun/ff-house/FF_HOUSE_DEMO_V2_ANDROID.apk"             -o work/FF_HOUSE_DEMO_V2_ANDROID.apk
+          ls -lh work/FF_HOUSE_DEMO_V2_ANDROID.apk
+          sha256sum work/FF_HOUSE_DEMO_V2_ANDROID.apk | tee work/demo/apk.sha256
+
+      - name: Extract and inventory
+        run: |
+          set -euxo pipefail
+          unzip -q work/FF_HOUSE_DEMO_V2_ANDROID.apk -d work/demo/apk
+          find work/demo/apk -type f -printf '%s %p\n' | sort -n > work/demo/files.txt
+
+          {
+            echo "=== APK ==="
+            ls -lh work/FF_HOUSE_DEMO_V2_ANDROID.apk
+            echo
+            echo "=== native arm64 ==="
+            find work/demo/apk/lib/arm64-v8a -type f -printf '%s %p\n' 2>/dev/null | sort || true
+            echo
+            echo "=== Unity Data ==="
+            find work/demo/apk/assets/bin/Data -maxdepth 4 -type f -printf '%s %p\n' 2>/dev/null | sort -n || true
+            echo
+            echo "=== Addressables ==="
+            find work/demo/apk/assets/aa -type f -printf '%s %p\n' 2>/dev/null | sort -n || true
+          } | tee work/demo/report.txt
+
+      - name: Pack reusable Android reference subset
+        run: |
+          set -euxo pipefail
+          mkdir -p work/demo/ref/lib work/demo/ref/assets
+          cp -a work/demo/apk/lib/arm64-v8a work/demo/ref/lib/ 2>/dev/null || true
+          cp -a work/demo/apk/assets/bin/Data work/demo/ref/assets/ 2>/dev/null || true
+          cp -a work/demo/apk/assets/aa work/demo/ref/assets/ 2>/dev/null || true
+          cp work/demo/report.txt work/demo/ref/
+          cp work/demo/apk.sha256 work/demo/ref/
+          tar -C work/demo -czf work/FFH-official-android-demo-reference.tgz ref
+          ls -lh work/FFH-official-android-demo-reference.tgz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FFH-official-android-demo-reference
+          path: work/FFH-official-android-demo-reference.tgz
+          retention-days: 7
