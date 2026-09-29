@@ -128,8 +128,8 @@ jobs:
           mkdir -p work/exported
           EXPORT_PATH="$GITHUB_WORKSPACE/work/exported"
           curl --fail --show-error --max-time 10800 -L --data-urlencode "Path=$EXPORT_PATH"             --data-urlencode "CreateSubfolder=false"             http://127.0.0.1:8080/Export/UnityProject             -o work/export-response.html
-          test -d work/exported/Assets
-          test -d work/exported/ProjectSettings
+          test -d work/exported/ExportedProject/Assets
+          test -d work/exported/ExportedProject/ProjectSettings
           kill "$(cat work/ar.pid)" || true
           echo "Export size:"
           du -sh work/exported
@@ -139,18 +139,18 @@ jobs:
       - name: Add Android mobile port sources
         run: |
           set -euxo pipefail
-          cp unity/FFHMobileRuntime.cs work/exported/Assets/FFHMobileRuntime.cs
-          mkdir -p work/exported/Assets/Editor
-          cp unity/FFHInputActionsPostprocessor.cs work/exported/Assets/Editor/FFHInputActionsPostprocessor.cs
-          cp unity/FFHAndroidBuilder.cs work/exported/Assets/Editor/FFHAndroidBuilder.cs
+          cp unity/FFHMobileRuntime.cs work/exported/ExportedProject/Assets/FFHMobileRuntime.cs
+          mkdir -p work/exported/ExportedProject/Assets/Editor
+          cp unity/FFHInputActionsPostprocessor.cs work/exported/ExportedProject/Assets/Editor/FFHInputActionsPostprocessor.cs
+          cp unity/FFHAndroidBuilder.cs work/exported/ExportedProject/Assets/Editor/FFHAndroidBuilder.cs
 
       - name: Build compact diagnostics
         run: |
           set -euxo pipefail
           rm -rf work/diagnostic
           mkdir -p work/diagnostic/project
-          cp -a work/exported/ProjectSettings work/diagnostic/project/ || true
-          cp -a work/exported/Packages work/diagnostic/project/ || true
+          cp -a work/exported/ExportedProject/ProjectSettings work/diagnostic/project/ || true
+          cp -a work/exported/ExportedProject/Packages work/diagnostic/project/ || true
           cp work/game-paths.txt work/diagnostic/
           cp work/assetripper.log work/diagnostic/
           cp work/load-response.html work/diagnostic/ || true
@@ -160,7 +160,7 @@ jobs:
           from pathlib import Path
           import shutil, os, json
 
-          src=Path("work/exported")
+          src=Path("work/exported/ExportedProject")
           dst=Path("work/diagnostic/project")
           exts={".cs",".asmdef",".asmref",".json",".inputactions",".xml",".txt",".rsp",".props",".targets",".md"}
           copied=0
