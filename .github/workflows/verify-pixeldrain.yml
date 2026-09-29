@@ -35,6 +35,14 @@ jobs:
           else
             echo "EXACT_MATCH=NO" | tee result.txt
           fi
+          echo "Extracting Managed set for hash comparison"
+          rm -rf managed-probe && mkdir -p managed-probe
+          7z x -y ffh.rar -omanaged-probe 'FEMBOY FUTA HOUSE/Femboy Futa House_Data/Managed/*.dll'
+          MDIR="$(find managed-probe -type d -path '*/Femboy Futa House_Data/Managed' -print -quit)"
+          test -d "$MDIR"
+          (cd "$MDIR" && sha256sum *.dll | sort -k2) > mirror-managed-sha256.txt
+          cp mirror-managed-sha256.txt "$GITHUB_WORKSPACE/mirror-managed-sha256.txt"
+          wc -l "$GITHUB_WORKSPACE/mirror-managed-sha256.txt"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -43,5 +51,6 @@ jobs:
             result.txt
             archive-list.txt
             probe/Assembly-CSharp.dll
+            mirror-managed-sha256.txt
           if-no-files-found: warn
           retention-days: 2
