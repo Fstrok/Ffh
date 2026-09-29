@@ -1,0 +1,178 @@
+name: Convert FFH to Android IL2CPP
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/convert-il2cpp.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  convert:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install base tools
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full curl python3-pip jq
+          python3 -m pip install --break-system-packages --upgrade gdown
+
+      - name: Install Unity 6000.2.6f2 + Android support
+        run: |
+          set -euxo pipefail
+          curl -fsSL https://unity.com/install.sh | bash
+          export PATH="$HOME/.local/bin:$PATH"
+          mkdir -p "$HOME/UnityEditors"
+          unity install-path --set "$HOME/UnityEditors"
+          unity install 6000.2.6f2 -m android --no-child-modules --yes --accept-eula
+          EDITOR="$HOME/UnityEditors/6000.2.6f2"
+          test -d "$EDITOR/Editor/Data/il2cpp/build/deploy"
+          test -d "$EDITOR/Editor/Data/MonoBleedingEdge/lib/mono/unityaot-linux"
+          test -d "$EDITOR/Editor/Data/PlaybackEngines/AndroidPlayer/Variations/il2cpp/Managed"
+          echo "EDITOR=$EDITOR" >> "$GITHUB_ENV"
+
+      - name: Download and extract FFH v1.177
+        env:
+          GAME_URL: https://drive.google.com/file/d/1ov6ggWc__WXLzMxePESUStjRg5MmhtbX/view?usp=drivesdk
+          INNER_PASSWORD: Downloaded from Porno-Island
+        run: |
+          set -euxo pipefail
+          mkdir -p work/outer work/game
+          gdown "$GAME_URL" -O work/outer.zip
+          7z x -y work/outer.zip -owork/outer 'Femboy_Futa_House/FEMBOY FUTA HOUSE-v1.177.zip'
+          INNER="$(find work/outer -type f -iname 'FEMBOY FUTA HOUSE-v1.177.zip' -print -quit)"
+          test -n "$INNER"
+          7z x -y -p"$INNER_PASSWORD" "$INNER" -owork/game
+          DATA="$(find work/game -type d -name 'Femboy Futa House_Data' -print -quit)"
+          test -d "$DATA/Managed"
+          test -f "$DATA/ScriptingAssemblies.json"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+          rm -f work/outer.zip "$INNER"
+          rm -rf work/outer
+          du -sh work/game
+
+      - name: Stage Android IL2CPP assembly set
+        run: |
+          set -euxo pipefail
+          mkdir -p work/il2cpp/assemblies work/il2cpp/cpp work/il2cpp/data
+          python3 - <<'PY'
+          import json, os, shutil
+          from pathlib import Path
+
+          editor=Path(os.environ["EDITOR"])
+          data=Path(os.environ["DATA"])
+          bcl=editor/"Editor/Data/MonoBleedingEdge/lib/mono/unityaot-linux"
+          engine=editor/"Editor/Data/PlaybackEngines/AndroidPlayer/Variations/il2cpp/Managed"
+          managed=data/"Managed"
+          out=Path("work/il2cpp/assemblies")
+
+          seen=set()
+          srcmap={}
+
+          def add_dir(d, names=None, label=""):
+              n=0
+              for p in sorted(d.glob("*.dll")):
+                  if names is not None and p.name not in names:
+                      continue
+                  if p.name in seen:
+                      continue
+                  shutil.copy2(p,out/p.name)
+                  seen.add(p.name)
+                  srcmap[p.name]=label+":"+str(p)
+                  n+=1
+              return n
+
+          # Correct IL2CPP class library and Android engine always win.
+          nb=add_dir(bcl,label="unityaot")
+          ne=add_dir(engine,label="android-engine")
+
+          obj=json.loads((data/"ScriptingAssemblies.json").read_text(encoding="utf-8"))
+          names=set(obj["names"])
+          ng=add_dir(managed,names,label="game")
+
+          # Do not allow a second desktop BCL profile into the conversion.
+          forbidden=[]
+          for p in out.glob("*.dll"):
+              low=p.name.lower()
+              if srcmap[p.name].startswith("game:") and (
+                  low in {"mscorlib.dll","netstandard.dll"} or
+                  low.startswith("system.") and p.name not in names
+              ):
+                  forbidden.append(p.name)
+
+          print("unityaot",nb,"android-engine",ne,"game",ng,"total",len(seen))
+          print("forbidden",forbidden)
+          Path("work/il2cpp/assembly-sources.json").write_text(
+              json.dumps(srcmap,indent=2,ensure_ascii=False),encoding="utf-8")
+          Path("work/il2cpp/assembly-list.txt").write_text(
+              "\n".join(sorted(seen))+"\n",encoding="utf-8")
+          PY
+          wc -l work/il2cpp/assembly-list.txt
+          sed -n '1,220p' work/il2cpp/assembly-list.txt
+
+      - name: Convert assemblies to C++ with Unity IL2CPP
+        run: |
+          set -euxo pipefail
+          DEPLOY="$EDITOR/Editor/Data/il2cpp/build/deploy"
+          CPP="$GITHUB_WORKSPACE/work/il2cpp/cpp"
+          DAT="$GITHUB_WORKSPACE/work/il2cpp/data"
+          ASM="$GITHUB_WORKSPACE/work/il2cpp/assemblies"
+
+          ARGS=(
+            --convert-to-cpp
+            --generatedcppdir="$CPP"
+            --data-folder="$DAT"
+            --dotnetprofile=unityaot-linux
+            --emit-null-checks
+            --enable-array-bounds-check
+            --static-lib-il2-cpp
+          )
+          while IFS= read -r f; do
+            ARGS+=(--assembly="$ASM/$f")
+          done < work/il2cpp/assembly-list.txt
+
+          set +e
+          if [ -x "$DEPLOY/il2cpp" ]; then
+            (cd "$DEPLOY" && ./il2cpp "${ARGS[@]}") > work/il2cpp/convert.log 2>&1
+            RC=$?
+          else
+            (cd "$DEPLOY" && dotnet ./il2cpp.dll "${ARGS[@]}") > work/il2cpp/convert.log 2>&1
+            RC=$?
+          fi
+          set -e
+          echo "IL2CPP_RC=$RC" | tee work/il2cpp/result.txt
+          tail -100 work/il2cpp/convert.log || true
+          echo "cpp_count=$(find "$CPP" -type f \( -name '*.cpp' -o -name '*.c' \) | wc -l)" | tee -a work/il2cpp/result.txt
+          find "$DAT" -maxdepth 4 -type f -printf '%p %s\n' | tee work/il2cpp/data-files.txt
+          test "$RC" -eq 0
+          test -s "$DAT/Metadata/global-metadata.dat"
+
+      - name: Pack conversion diagnostics
+        if: always()
+        run: |
+          set +e
+          mkdir -p work/diag
+          cp work/il2cpp/convert.log work/diag/ 2>/dev/null
+          cp work/il2cpp/result.txt work/diag/ 2>/dev/null
+          cp work/il2cpp/assembly-list.txt work/diag/ 2>/dev/null
+          cp work/il2cpp/assembly-sources.json work/diag/ 2>/dev/null
+          cp work/il2cpp/data-files.txt work/diag/ 2>/dev/null
+          if [ -f work/il2cpp/data/Metadata/global-metadata.dat ]; then
+            cp work/il2cpp/data/Metadata/global-metadata.dat work/diag/
+          fi
+          tar -C work -czf work/FFH-il2cpp-conversion.tgz diag
+          ls -lh work/FFH-il2cpp-conversion.tgz
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FFH-il2cpp-conversion
+          path: work/FFH-il2cpp-conversion.tgz
+          retention-days: 7
