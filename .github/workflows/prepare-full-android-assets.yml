@@ -1,4 +1,4 @@
-name: Prepare Full FFH Android Assets
+name: Prepare Exact FFH Android Assets
 
 on:
   push:
@@ -12,37 +12,61 @@ permissions:
 jobs:
   assets:
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    timeout-minutes: 180
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Free disk
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: false
+          dotnet: false
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
 
       - name: Install tools
         run: |
           set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y p7zip-full dotnet-sdk-8.0 git
+          sudo apt-get install -y p7zip-full dotnet-sdk-8.0 git curl
 
-      - name: Download FFH v1.177 asset source
+      - name: Download exact original source
         run: |
           set -euxo pipefail
-          curl -fL --retry 6 --retry-all-errors --retry-delay 3             https://pixeldrain.com/api/file/EXowkxqN             -o ffh.rar
-          test "$(stat -c %s ffh.rar)" = "5056094797"
-          echo "dd1e5330debb742a305d5412cfff81526c6b0ab8c31b52dfae628a3e06cda6c7  ffh.rar" | sha256sum -c -
+          URL='https://drive.usercontent.google.com/download?id=1ov6ggWc__WXLzMxePESUStjRg5MmhtbX&export=download&confirm=t'
+          curl -fL --retry 6 --retry-all-errors --retry-delay 3 "$URL" -o outer.zip
+          test "$(stat -c %s outer.zip)" = "4882324669"
+          mkdir -p outer
+          7z x -y outer.zip -oouter 'Femboy_Futa_House/FEMBOY FUTA HOUSE-v1.177.zip'
+          INNER="$(find outer -type f -iname 'FEMBOY FUTA HOUSE-v1.177.zip' -print -quit)"
+          test -n "$INNER"
+          test "$(stat -c %s "$INNER")" = "3659065573"
+          mv "$INNER" inner.zip
+          rm -rf outer outer.zip
 
-      - name: Extract full player asset data
+      - name: Extract exact full player data
+        env:
+          PASS: Downloaded from Porno-Island
         run: |
           set -euxo pipefail
           mkdir -p work
-          BASE='FEMBOY FUTA HOUSE/Femboy Futa House_Data'
-          7z x -y ffh.rar -owork             "$BASE/globalgamemanagers"             "$BASE/globalgamemanagers.assets"             "$BASE/globalgamemanagers.assets.resS"             "$BASE/resources.assets"             "$BASE/resources.assets.resS"             "$BASE/sharedassets0.assets"             "$BASE/sharedassets0.assets.resS"             "$BASE/level0"             "$BASE/boot.config"             "$BASE/app.info"             "$BASE/RuntimeInitializeOnLoads.json"             "$BASE/ScriptingAssemblies.json"             "$BASE/Resources/unity_builtin_extra"             "$BASE/StreamingAssets/aa/catalog.bin"             "$BASE/StreamingAssets/aa/catalog.hash"             "$BASE/StreamingAssets/aa/settings.json"             "$BASE/StreamingAssets/aa/StandaloneWindows64/*"
+          BASE='FEMBOY FUTA HOUSE-v1.177/Femboy Futa House_Data'
+          7z x -y -p"$PASS" inner.zip -owork             "$BASE/globalgamemanagers"             "$BASE/globalgamemanagers.assets"             "$BASE/globalgamemanagers.assets.resS"             "$BASE/resources.assets"             "$BASE/resources.assets.resS"             "$BASE/resources.resource"             "$BASE/level*"             "$BASE/sharedassets*.assets"             "$BASE/sharedassets*.assets.resS"             "$BASE/sharedassets*.resource"             "$BASE/boot.config"             "$BASE/app.info"             "$BASE/RuntimeInitializeOnLoads.json"             "$BASE/ScriptingAssemblies.json"             "$BASE/Resources/unity_builtin_extra"             "$BASE/StreamingAssets/aa/catalog.bin"             "$BASE/StreamingAssets/aa/catalog.hash"             "$BASE/StreamingAssets/aa/settings.json"             "$BASE/StreamingAssets/aa/StandaloneWindows64/*"
           DATA="work/$BASE"
           test -f "$DATA/globalgamemanagers"
+          test -f "$DATA/level8"
+          test -f "$DATA/sharedassets8.assets"
           test -d "$DATA/StreamingAssets/aa/StandaloneWindows64"
+          test "$(sha256sum "$DATA/globalgamemanagers" | cut -d' ' -f1)" = "83adf9e6b3c7eaac72f402f2f044fe459dbed298d84b087d4b45fc581e6f5950"
+          test "$(sha256sum "$DATA/StreamingAssets/aa/catalog.bin" | cut -d' ' -f1)" = "0389bc99f2e5fbb984196dcd56fde29ae87b5bd95b2243d4b4ca641e39dec4ab"
           echo "DATA=$DATA" >> "$GITHUB_ENV"
-          echo "bundle_count=$(find "$DATA/StreamingAssets/aa/StandaloneWindows64" -type f -name '*.bundle' | wc -l)"
+          rm -f inner.zip
+          echo "bundles=$(find "$DATA/StreamingAssets/aa/StandaloneWindows64" -type f -name '*.bundle' | wc -l)"
           du -sh "$DATA"
-          rm -f ffh.rar
 
       - name: Build BundleSurgery
         run: |
@@ -53,30 +77,44 @@ jobs:
           test -s "$BS"
           echo "BS=$BS" >> "$GITHUB_ENV"
 
-      - name: Retarget all Addressables bundles to Android
+      - name: Retarget Addressables to Android
         run: |
           set -euxo pipefail
           AA="$DATA/StreamingAssets/aa/StandaloneWindows64"
           dotnet "$BS" retarget-tree "$AA" "$AA" 2>&1 | tee retarget-addressables.log
-          test "$(find "$AA" -type f -name '*.bundle' | wc -l)" -gt 100
 
-      - name: Retarget core serialized assets
+      - name: Retarget player serialized files
         run: |
           set -euxo pipefail
-          # These desktop serialized files are stamped Android. Shader extraction
-          # keeps Vulkan if the Windows build contains a Vulkan slice; otherwise
-          # the original shader payload remains and runtime testing will decide.
-          for F in globalgamemanagers.assets resources.assets sharedassets0.assets; do
-            if [ -f "$DATA/$F" ]; then
-              dotnet "$BS" extract-vulkan-android "$DATA/$F" "$DATA/$F.android" 2>&1 | tee -a retarget-core.log
-              mv "$DATA/$F.android" "$DATA/$F"
-            fi
+
+          # Serialized *.assets: set Android target and keep Vulkan slice when present.
+          for F in globalgamemanagers.assets resources.assets sharedassets{0..8}.assets; do
+            [ -f "$DATA/$F" ] || continue
+            dotnet "$BS" extract-vulkan-android "$DATA/$F" "$DATA/$F.android" 2>&1 | tee -a retarget-core.log
+            mv "$DATA/$F.android" "$DATA/$F"
           done
 
-          # BuildSettings must request Vulkan on Android.
+          # BuildSettings must select Vulkan.
           dotnet "$BS" set-graphics-apis "$DATA/globalgamemanagers" 21 2>&1 | tee -a retarget-core.log
 
-          # IL2CPP Android boot path.
+          # Raw serialized files without .assets extension: stamp targetPlatform=Android (13).
+          python3 - <<'PY'
+          import os, struct
+          from pathlib import Path
+          root=Path(os.environ["DATA"])
+          files=[root/"globalgamemanagers", root/"Resources/unity_builtin_extra"]
+          files += [root/f"level{i}" for i in range(9)]
+          for p in files:
+              if not p.is_file(): continue
+              b=bytearray(p.read_bytes())
+              i=48
+              while i < len(b) and b[i] != 0: i += 1
+              if i+5 > len(b): raise SystemExit(f"{p}: version string not found")
+              b[i+1:i+5]=struct.pack("<i",13)
+              p.write_bytes(b)
+              print("Android target:",p)
+          PY
+
           python3 - <<'PY'
           import os
           from pathlib import Path
@@ -86,185 +124,243 @@ jobs:
           p.write_text("\n".join(lines)+"\n")
           PY
 
-      - name: Remove desktop-only addressables link metadata
+      - name: Inventory exact Android assets
         run: |
           set -euxo pipefail
-          rm -rf "$DATA/StreamingAssets/aa/AddressablesLink" || true
           find "$DATA" -type f -printf '%P %s\n' | sort > full-files.txt
+          sha256sum             "$DATA/globalgamemanagers"             "$DATA/globalgamemanagers.assets"             "$DATA/resources.assets"             "$DATA/sharedassets0.assets"             "$DATA/StreamingAssets/aa/catalog.bin" > core-sha256.txt
           du -sh "$DATA"
-          sha256sum "$DATA/globalgamemanagers" "$DATA/globalgamemanagers.assets" "$DATA/resources.assets"             "$DATA/sharedassets0.assets" "$DATA/StreamingAssets/aa/catalog.bin" > core-sha256.txt
+          find "$DATA/StreamingAssets/aa/StandaloneWindows64" -type f -name '*.bundle' | wc -l
 
-      - name: Pack as resumable 180 MB chunks
+      - name: Pack into 180 MB chunks
         run: |
           set -euxo pipefail
           mkdir -p chunks
-          tar -C "$DATA" -cf - . | split -b 180M -d -a 2 - chunks/ffh-android-assets.tar.part-
+          tar -C "$DATA" -cf - . | split -b 180M -d -a 2 - chunks/ffh-exact-android-assets.tar.part-
           ls -lh chunks
           sha256sum chunks/* > chunks.sha256
-          cat chunks.sha256
+          PARTS="$(find chunks -type f | wc -l)"
+          echo "PARTS=$PARTS"
+          test "$PARTS" -le 30
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-00
-          path: chunks/ffh-android-assets.tar.part-00
+          name: ffh-exact-assets-part-00
+          path: chunks/ffh-exact-android-assets.tar.part-00
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-01
-          path: chunks/ffh-android-assets.tar.part-01
+          name: ffh-exact-assets-part-01
+          path: chunks/ffh-exact-android-assets.tar.part-01
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-02
-          path: chunks/ffh-android-assets.tar.part-02
+          name: ffh-exact-assets-part-02
+          path: chunks/ffh-exact-android-assets.tar.part-02
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-03
-          path: chunks/ffh-android-assets.tar.part-03
+          name: ffh-exact-assets-part-03
+          path: chunks/ffh-exact-android-assets.tar.part-03
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-04
-          path: chunks/ffh-android-assets.tar.part-04
+          name: ffh-exact-assets-part-04
+          path: chunks/ffh-exact-android-assets.tar.part-04
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-05
-          path: chunks/ffh-android-assets.tar.part-05
+          name: ffh-exact-assets-part-05
+          path: chunks/ffh-exact-android-assets.tar.part-05
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-06
-          path: chunks/ffh-android-assets.tar.part-06
+          name: ffh-exact-assets-part-06
+          path: chunks/ffh-exact-android-assets.tar.part-06
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-07
-          path: chunks/ffh-android-assets.tar.part-07
+          name: ffh-exact-assets-part-07
+          path: chunks/ffh-exact-android-assets.tar.part-07
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-08
-          path: chunks/ffh-android-assets.tar.part-08
+          name: ffh-exact-assets-part-08
+          path: chunks/ffh-exact-android-assets.tar.part-08
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-09
-          path: chunks/ffh-android-assets.tar.part-09
+          name: ffh-exact-assets-part-09
+          path: chunks/ffh-exact-android-assets.tar.part-09
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-10
-          path: chunks/ffh-android-assets.tar.part-10
+          name: ffh-exact-assets-part-10
+          path: chunks/ffh-exact-android-assets.tar.part-10
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-11
-          path: chunks/ffh-android-assets.tar.part-11
+          name: ffh-exact-assets-part-11
+          path: chunks/ffh-exact-android-assets.tar.part-11
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-12
-          path: chunks/ffh-android-assets.tar.part-12
+          name: ffh-exact-assets-part-12
+          path: chunks/ffh-exact-android-assets.tar.part-12
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-13
-          path: chunks/ffh-android-assets.tar.part-13
+          name: ffh-exact-assets-part-13
+          path: chunks/ffh-exact-android-assets.tar.part-13
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-14
-          path: chunks/ffh-android-assets.tar.part-14
+          name: ffh-exact-assets-part-14
+          path: chunks/ffh-exact-android-assets.tar.part-14
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-15
-          path: chunks/ffh-android-assets.tar.part-15
+          name: ffh-exact-assets-part-15
+          path: chunks/ffh-exact-android-assets.tar.part-15
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-16
-          path: chunks/ffh-android-assets.tar.part-16
+          name: ffh-exact-assets-part-16
+          path: chunks/ffh-exact-android-assets.tar.part-16
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-17
-          path: chunks/ffh-android-assets.tar.part-17
+          name: ffh-exact-assets-part-17
+          path: chunks/ffh-exact-android-assets.tar.part-17
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-18
-          path: chunks/ffh-android-assets.tar.part-18
+          name: ffh-exact-assets-part-18
+          path: chunks/ffh-exact-android-assets.tar.part-18
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-19
-          path: chunks/ffh-android-assets.tar.part-19
+          name: ffh-exact-assets-part-19
+          path: chunks/ffh-exact-android-assets.tar.part-19
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-20
-          path: chunks/ffh-android-assets.tar.part-20
+          name: ffh-exact-assets-part-20
+          path: chunks/ffh-exact-android-assets.tar.part-20
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-part-21
-          path: chunks/ffh-android-assets.tar.part-21
+          name: ffh-exact-assets-part-21
+          path: chunks/ffh-exact-android-assets.tar.part-21
           compression-level: 0
-          retention-days: 7
+          retention-days: 3
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffh-exact-assets-part-22
+          path: chunks/ffh-exact-android-assets.tar.part-22
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffh-exact-assets-part-23
+          path: chunks/ffh-exact-android-assets.tar.part-23
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffh-exact-assets-part-24
+          path: chunks/ffh-exact-android-assets.tar.part-24
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffh-exact-assets-part-25
+          path: chunks/ffh-exact-android-assets.tar.part-25
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffh-exact-assets-part-26
+          path: chunks/ffh-exact-android-assets.tar.part-26
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffh-exact-assets-part-27
+          path: chunks/ffh-exact-android-assets.tar.part-27
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffh-exact-assets-part-28
+          path: chunks/ffh-exact-android-assets.tar.part-28
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffh-exact-assets-part-29
+          path: chunks/ffh-exact-android-assets.tar.part-29
+          compression-level: 0
+          retention-days: 3
           if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ffh-assets-manifest
+          name: ffh-exact-assets-manifest
           path: |
             chunks.sha256
             full-files.txt
             core-sha256.txt
             retarget-addressables.log
             retarget-core.log
-          retention-days: 7
+          retention-days: 3
