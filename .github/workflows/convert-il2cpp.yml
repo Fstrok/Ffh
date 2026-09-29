@@ -24,7 +24,15 @@ jobs:
           sudo apt-get install -y p7zip-full curl python3-pip jq
           python3 -m pip install --break-system-packages --upgrade gdown
 
+      - name: Restore Unity cache
+        id: unity-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/UnityEditors/6000.2.6f2
+          key: unity-6000.2.6f2-android-v1
+
       - name: Install Unity 6000.2.6f2 + Android support
+        if: steps.unity-cache.outputs.cache-hit != 'true'
         run: |
           set -euxo pipefail
           curl -fsSL https://unity.com/install.sh | bash
@@ -36,7 +44,22 @@ jobs:
           test -d "$EDITOR/Editor/Data/il2cpp/build/deploy"
           test -d "$EDITOR/Editor/Data/MonoBleedingEdge/lib/mono/unityaot-linux"
           test -d "$EDITOR/Editor/Data/PlaybackEngines/AndroidPlayer/Variations/il2cpp/Managed"
+
+      - name: Resolve Unity paths
+        run: |
+          set -euxo pipefail
+          EDITOR="$HOME/UnityEditors/6000.2.6f2"
+          test -d "$EDITOR/Editor/Data/il2cpp/build/deploy"
+          test -d "$EDITOR/Editor/Data/MonoBleedingEdge/lib/mono/unityaot-linux"
+          test -d "$EDITOR/Editor/Data/PlaybackEngines/AndroidPlayer/Variations/il2cpp/Managed"
           echo "EDITOR=$EDITOR" >> "$GITHUB_ENV"
+
+      - name: Save Unity cache now
+        if: steps.unity-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/UnityEditors/6000.2.6f2
+          key: unity-6000.2.6f2-android-v1
 
       - name: Download and extract FFH v1.177
         env:
