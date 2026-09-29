@@ -1,0 +1,65 @@
+name: Prepare FFH Unity Android Toolchain
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/prepare-toolchain.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  toolchain:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Unity 6000.2.6f2 + Android
+        run: |
+          set -euxo pipefail
+          curl -fsSL https://unity.com/install.sh | bash
+          export PATH="$HOME/.local/bin:$PATH"
+          mkdir -p "$HOME/UnityEditors"
+          unity install-path --set "$HOME/UnityEditors"
+          unity install 6000.2.6f2 -m android --no-child-modules --yes --accept-eula
+
+      - name: Pack only porting toolchain
+        run: |
+          set -euxo pipefail
+          U="$HOME/UnityEditors/6000.2.6f2/Editor/Data"
+          AP="$U/PlaybackEngines/AndroidPlayer"
+          O=toolchain
+          mkdir -p "$O/Editor/Data"
+
+          # IL2CPP converter/runtime sources and the matching AOT BCL.
+          cp -a "$U/il2cpp" "$O/Editor/Data/"
+          mkdir -p "$O/Editor/Data/MonoBleedingEdge/lib/mono"
+          cp -a "$U/MonoBleedingEdge/lib/mono/unityaot-linux" "$O/Editor/Data/MonoBleedingEdge/lib/mono/"
+
+          # Only the Android pieces required to produce/run ARM64 IL2CPP.
+          mkdir -p "$O/Editor/Data/PlaybackEngines/AndroidPlayer/Variations/il2cpp"
+          cp -a "$AP/Variations/il2cpp/Managed" "$O/Editor/Data/PlaybackEngines/AndroidPlayer/Variations/il2cpp/"
+          mkdir -p "$O/Editor/Data/PlaybackEngines/AndroidPlayer/Variations/il2cpp/Release/Libs"
+          cp -a "$AP/Variations/il2cpp/Release/Libs/arm64-v8a" "$O/Editor/Data/PlaybackEngines/AndroidPlayer/Variations/il2cpp/Release/Libs/"
+          mkdir -p "$O/Editor/Data/PlaybackEngines/AndroidPlayer/Variations/il2cpp/Release/StaticLibs"
+          cp -a "$AP/Variations/il2cpp/Release/StaticLibs/arm64-v8a" "$O/Editor/Data/PlaybackEngines/AndroidPlayer/Variations/il2cpp/Release/StaticLibs/"
+          mkdir -p "$O/Editor/Data/PlaybackEngines/AndroidPlayer/Variations/il2cpp/Release/Classes"
+          cp -a "$AP/Variations/il2cpp/Release/Classes/classes.jar" "$O/Editor/Data/PlaybackEngines/AndroidPlayer/Variations/il2cpp/Release/Classes/"
+
+          # Stock Android player resources + Java sources.
+          if [ -d "$AP/Data" ]; then cp -a "$AP/Data" "$O/Editor/Data/PlaybackEngines/AndroidPlayer/"; fi
+          if [ -d "$AP/Source" ]; then cp -a "$AP/Source" "$O/Editor/Data/PlaybackEngines/AndroidPlayer/"; fi
+
+          find "$O" -type f -printf '%p %s\n' | sort > toolchain-files.txt
+          du -sh "$O"
+          tar -cJf ffh-unity-6000.2.6f2-toolchain.tar.xz "$O"
+          ls -lh ffh-unity-6000.2.6f2-toolchain.tar.xz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffh-unity-6000.2.6f2-toolchain
+          path: ffh-unity-6000.2.6f2-toolchain.tar.xz
+          compression-level: 0
+          retention-days: 7
