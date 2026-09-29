@@ -56,7 +56,7 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p work
-          gdown --fuzzy "$GAME_URL" -O work/outer.zip
+          gdown "$GAME_URL" -O work/outer.zip
           test -s work/outer.zip
           ls -lh work/outer.zip
           7z l work/outer.zip | tail -30
