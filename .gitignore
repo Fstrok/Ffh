@@ -1,0 +1,9 @@
+work/
+Library/
+Temp/
+Obj/
+Builds/
+*.apk
+*.aab
+*.zip
+*.7z
