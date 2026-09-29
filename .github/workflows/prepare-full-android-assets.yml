@@ -85,8 +85,9 @@ jobs:
           SH
           chmod +x ranges/get.sh
 
+          export URL
           awk '{print $1" "$2" "$3}' ranges/jobs.txt | \
-            xargs -n3 -P8 bash -c 'ranges/get.sh "$1" "$2" "$3" "$4"' _ {} {} {} "$URL"
+            xargs -n3 -P8 bash -c 'ranges/get.sh "$1" "$2" "$3" "$URL"' _
 
           test "$(find ranges -type f -name 'part-*' | wc -l)" = "$(wc -l < ranges/jobs.txt)"
           cat $(find ranges -type f -name 'part-*' | sort) > outer.zip
