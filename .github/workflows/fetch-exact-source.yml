@@ -1,0 +1,44 @@
+name: Fetch Exact FFH Source
+
+on:
+  push:
+    branches: [ main ]
+    paths: [".github/workflows/fetch-exact-source.yml"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full python3-pip
+          python3 -m pip install --break-system-packages --upgrade gdown
+      - name: Download fresh Drive copy
+        run: |
+          set -euxo pipefail
+          mkdir -p work/outer work/probe
+          gdown "https://drive.google.com/file/d/1unZvgPTMALmpu5c62WEstjScI91LZiD4/view?usp=drivesdk" -O work/outer.zip
+          test "$(stat -c %s work/outer.zip)" = "4882324669"
+          7z x -y work/outer.zip -owork/outer 'Femboy_Futa_House/FEMBOY FUTA HOUSE-v1.177.zip'
+          INNER="$(find work/outer -type f -iname 'FEMBOY FUTA HOUSE-v1.177.zip' -print -quit)"
+          test -n "$INNER"
+          test "$(stat -c %s "$INNER")" = "3659065573"
+          7z e -y -p'Downloaded from Porno-Island' "$INNER" -owork/probe             'FEMBOY FUTA HOUSE-v1.177/Femboy Futa House_Data/Managed/Assembly-CSharp.dll'
+          GOT="$(sha256sum work/probe/Assembly-CSharp.dll | cut -d' ' -f1)"
+          echo "Assembly-CSharp=$GOT"
+          test "$GOT" = "d5c36732476cd51ad19259e842f2551f6cbc0165cdb839d23d03eb2d67e4beb6"
+          echo "EXACT_SOURCE=YES" > work/result.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: exact-source-probe
+          path: work/result.txt
+          if-no-files-found: warn
+          retention-days: 2
