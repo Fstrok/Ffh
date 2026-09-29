@@ -1,0 +1,65 @@
+name: Prepare Split Android NDK ARM64
+
+on:
+  push:
+    branches: [ main ]
+    paths: [".github/workflows/prepare-ndk-split.yml"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  ndk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Split NDK pieces
+        run: |
+          set -euxo pipefail
+          NDK="$(find "$ANDROID_SDK_ROOT/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          P="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
+          echo "Using $NDK"
+          cat "$NDK/source.properties"
+
+          rm -rf out && mkdir -p out/binpart/bin out/binpart/lib out/headers/sysroot/usr out/libs/sysroot/usr/lib/aarch64-linux-android
+
+          for f in clang clang++ ld.lld llvm-ar llvm-ranlib llvm-strip; do
+            cp -L "$P/bin/$f" "out/binpart/bin/$f"
+          done
+          cp -a "$P/lib/clang" out/binpart/lib/
+
+          cp -a "$P/sysroot/usr/include" out/headers/sysroot/usr/
+
+          cp -a "$P/sysroot/usr/lib/aarch64-linux-android/33" out/libs/sysroot/usr/lib/aarch64-linux-android/
+          find "$P/sysroot/usr/lib/aarch64-linux-android" -maxdepth 1 -type f             \( -name 'libc++*.a' -o -name 'libunwind.a' -o -name 'libandroid_support.a' -o -name '*.o' \)             -exec cp -a {} out/libs/sysroot/usr/lib/aarch64-linux-android/ \;
+
+          tar -cf ndk-binpart.tar -C out/binpart .
+          tar -cf ndk-headers.tar -C out/headers .
+          tar -cf ndk-libs.tar -C out/libs .
+
+          ls -lh ndk-*.tar
+          du -sh out/binpart out/headers out/libs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ndk-binpart
+          path: ndk-binpart.tar
+          compression-level: 0
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ndk-headers
+          path: ndk-headers.tar
+          compression-level: 0
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ndk-libs
+          path: ndk-libs.tar
+          compression-level: 0
+          retention-days: 7
