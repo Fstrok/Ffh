@@ -17,7 +17,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/UnityEditors/6000.2.6f2
-          key: unity-6000.2.6f2-android-v1
+          key: unity-6000.2.6f2-android-full-v2
       - name: Install Unity if needed
         if: steps.unity-cache.outputs.cache-hit != 'true'
         run: |
