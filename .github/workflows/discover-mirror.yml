@@ -1,0 +1,50 @@
+name: Discover FFH v1.177 Mirror
+on:
+  push:
+    branches: [ main ]
+    paths: [".github/workflows/discover-mirror.yml"]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  discover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch mirror pages and extract links
+        run: |
+          set -euxo pipefail
+          mkdir -p work
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
+          for URL in             'https://skidrowgamereloaded.co/17220/femboy-futa-house'             'https://ankergames.net/game/femboy-futa-house'
+          do
+            name="$(echo "$URL" | sed 's#[^A-Za-z0-9]#_#g')"
+            curl -L --compressed --retry 3 -A "$UA" "$URL" -o "work/$name.html" || true
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, html, urllib.parse
+          pats=('pixeldrain','gofile','mediafire','1fichier','mega.nz','download','v1.177','femboy')
+          for p in Path('work').glob('*.html'):
+              s=p.read_text(errors='ignore')
+              print('\n===',p,'bytes',len(s),'===')
+              urls=[]
+              for raw in re.findall(r'''(?:href|src|data-url|data-href)=["']([^"']+)["']''',s,re.I):
+                  u=html.unescape(raw).replace('\\/','/')
+                  if any(x in u.lower() for x in pats):
+                      urls.append(u)
+              # Also catch URLs embedded in JS/JSON.
+              for raw in re.findall(r'https?[^"\'<>\\ ]+',s,re.I):
+                  u=html.unescape(raw).replace('\\/','/')
+                  if any(x in u.lower() for x in pats):
+                      urls.append(u)
+              for u in dict.fromkeys(urls):
+                  print(u[:2000])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ffh-mirror-pages
+          path: work
+          retention-days: 1
