@@ -1,0 +1,223 @@
+name: Reconstruct FFH Unity Project
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/reconstruct.yml"
+      - "unity/**"
+  workflow_dispatch:
+    inputs:
+      game_url:
+        description: Public Google Drive URL to Femboy_Futa_House.zip
+        required: true
+        default: "https://drive.google.com/file/d/1ov6ggWc__WXLzMxePESUStjRg5MmhtbX/view?usp=drivesdk"
+      inner_password:
+        description: Password of nested v1.177 ZIP
+        required: true
+        default: "Downloaded from Porno-Island"
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  reconstruct:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+
+    env:
+      GAME_URL: ${{ github.event.inputs.game_url || 'https://drive.google.com/file/d/1ov6ggWc__WXLzMxePESUStjRg5MmhtbX/view?usp=drivesdk' }}
+      INNER_PASSWORD: ${{ github.event.inputs.inner_password || 'Downloaded from Porno-Island' }}
+
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@v4
+
+      - name: Free runner disk
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: false
+          dotnet: false
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install tools
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full curl xz-utils jq python3-pip
+          python3 -m pip install --break-system-packages --upgrade gdown
+
+      - name: Download full game archive from Google Drive
+        run: |
+          set -euxo pipefail
+          mkdir -p work
+          gdown --fuzzy "$GAME_URL" -O work/outer.zip
+          test -s work/outer.zip
+          ls -lh work/outer.zip
+          7z l work/outer.zip | tail -30
+
+      - name: Extract nested v1.177 game
+        run: |
+          set -euxo pipefail
+          mkdir -p work/outer work/game
+          7z x -y work/outer.zip -owork/outer '*FEMBOY FUTA HOUSE-v1.177.zip'
+          INNER="$(find work/outer -type f -iname 'FEMBOY FUTA HOUSE-v1.177.zip' -print -quit)"
+          test -n "$INNER"
+          ls -lh "$INNER"
+          7z x -y -p"$INNER_PASSWORD" "$INNER" -owork/game
+          GAME_EXE="$(find work/game -type f -iname 'Femboy Futa House.exe' -print -quit)"
+          test -n "$GAME_EXE"
+          MANAGED="$(find work/game -type f -path '*/Managed/Assembly-CSharp.dll' -print -quit)"
+          test -n "$MANAGED"
+          printf 'GAME_EXE=%s\nMANAGED=%s\n' "$GAME_EXE" "$MANAGED" | tee work/game-paths.txt
+          ls -lh "$MANAGED"
+
+      - name: Download AssetRipper 2.0.0
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 3             https://github.com/AssetRipper/AssetRipper/releases/download/2.0.0/AssetRipper_linux_x64.tar.xz             -o work/assetripper.tar.xz
+          echo "6f5d4352d36795b944243eb3ec790ec37dbca6d6756e52605bc8616e042d384e  work/assetripper.tar.xz" | sha256sum -c -
+          mkdir -p work/ar
+          tar -xJf work/assetripper.tar.xz -C work/ar
+          AR="$(find work/ar -type f -name 'AssetRipper' -perm -111 -print -quit)"
+          if [ -z "$AR" ]; then
+            AR="$(find work/ar -type f -name 'AssetRipper*' -perm -111 -print -quit)"
+          fi
+          test -n "$AR"
+          echo "$AR" | tee work/ar-path.txt
+          "$AR" --help | head -80 || true
+
+      - name: Start AssetRipper headless
+        run: |
+          set -euxo pipefail
+          AR="$(cat work/ar-path.txt)"
+          "$AR" --headless --port 8080 > work/assetripper.log 2>&1 &
+          echo $! > work/ar.pid
+          READY=0
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:8080/ >/dev/null; then
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$READY" != 1 ]; then
+            cat work/assetripper.log
+            exit 1
+          fi
+          echo "AssetRipper ready"
+
+      - name: Load full Windows build in AssetRipper
+        run: |
+          set -euxo pipefail
+          GAME_EXE="$(sed -n 's/^GAME_EXE=//p' work/game-paths.txt)"
+          GAME_ROOT="$(dirname "$GAME_EXE")"
+          echo "Loading: $GAME_ROOT"
+          curl --fail --show-error --max-time 10800 -L             -X POST             --data-urlencode "Path=$GAME_ROOT"             http://127.0.0.1:8080/LoadFolder             -o work/load-response.html
+          grep -Ei "error|exception|failed" work/assetripper.log | tail -100 || true
+
+      - name: Export Unity project
+        run: |
+          set -euxo pipefail
+          rm -rf work/exported
+          mkdir -p work/exported
+          EXPORT_PATH="$GITHUB_WORKSPACE/work/exported"
+          curl --fail --show-error --max-time 10800 -L             -X POST             --data-urlencode "Path=$EXPORT_PATH"             --data-urlencode "CreateSubfolder=false"             http://127.0.0.1:8080/Export/UnityProject             -o work/export-response.html
+          test -d work/exported/Assets
+          test -d work/exported/ProjectSettings
+          kill "$(cat work/ar.pid)" || true
+          echo "Export size:"
+          du -sh work/exported
+          echo "Files:"
+          find work/exported -type f | wc -l
+
+      - name: Add Android mobile port sources
+        run: |
+          set -euxo pipefail
+          cp unity/FFHMobileRuntime.cs work/exported/Assets/FFHMobileRuntime.cs
+          mkdir -p work/exported/Assets/Editor
+          cp unity/FFHInputActionsPostprocessor.cs work/exported/Assets/Editor/FFHInputActionsPostprocessor.cs
+          cp unity/FFHAndroidBuilder.cs work/exported/Assets/Editor/FFHAndroidBuilder.cs
+
+      - name: Build compact diagnostics
+        run: |
+          set -euxo pipefail
+          rm -rf work/diagnostic
+          mkdir -p work/diagnostic/project
+          cp -a work/exported/ProjectSettings work/diagnostic/project/ || true
+          cp -a work/exported/Packages work/diagnostic/project/ || true
+          cp work/game-paths.txt work/diagnostic/
+          cp work/assetripper.log work/diagnostic/
+          cp work/load-response.html work/diagnostic/ || true
+          cp work/export-response.html work/diagnostic/ || true
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil, os, json
+
+          src=Path("work/exported")
+          dst=Path("work/diagnostic/project")
+          exts={".cs",".asmdef",".asmref",".json",".inputactions",".xml",".txt",".rsp",".props",".targets",".md"}
+          copied=0
+          skipped=0
+
+          for p in src.rglob("*"):
+              if not p.is_file():
+                  continue
+              rel=p.relative_to(src)
+              if str(rel).startswith(("ProjectSettings/","Packages/")):
+                  continue
+              if p.suffix.lower() not in exts:
+                  continue
+              if p.stat().st_size > 4*1024*1024:
+                  skipped+=1
+                  continue
+              q=dst/rel
+              q.parent.mkdir(parents=True,exist_ok=True)
+              shutil.copy2(p,q)
+              copied+=1
+
+          inventory=[]
+          for p in src.rglob("*"):
+              if p.is_file():
+                  try:
+                      inventory.append({"path":str(p.relative_to(src)),"size":p.stat().st_size})
+                  except OSError:
+                      pass
+          Path("work/diagnostic/inventory.json").write_text(
+              json.dumps(inventory,ensure_ascii=False,indent=2),encoding="utf-8")
+          Path("work/diagnostic/summary.txt").write_text(
+              f"diagnostic_text_files={copied}\nskipped_large_text_files={skipped}\ntotal_files={len(inventory)}\n",
+              encoding="utf-8")
+          PY
+
+          find work/diagnostic -type f | sort > work/diagnostic/file-list.txt
+          du -sh work/diagnostic
+          tar -C work -czf work/FFH_reconstruction_diagnostic.tgz diagnostic
+          ls -lh work/FFH_reconstruction_diagnostic.tgz
+
+      - name: Upload reconstruction diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: FFH-reconstruction-diagnostic
+          path: work/FFH_reconstruction_diagnostic.tgz
+          compression-level: 0
+          retention-days: 7
+
+      - name: Always upload raw AssetRipper log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FFH-AssetRipper-log
+          path: |
+            work/assetripper.log
+            work/game-paths.txt
+            work/load-response.html
+            work/export-response.html
+          if-no-files-found: warn
+          retention-days: 7
