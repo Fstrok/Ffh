@@ -19,7 +19,7 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           unity --version
           mkdir -p "$HOME/UnityEditors"
-          unity install-path set "$HOME/UnityEditors"
+          unity install-path --set "$HOME/UnityEditors"
           unity install 6000.2.6f2 -m android --no-child-modules --yes --accept-eula
       - name: Inventory Android player
         run: |
